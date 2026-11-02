@@ -183,7 +183,7 @@ impl App {
         }
     }
 
-    fn handle_camera_zoom(&mut self) {
+    fn camera_zoom(&mut self) {
         let camera = self.camera();
         let raw_mouse_pos = {
             let pos = mouse_position();
@@ -191,7 +191,8 @@ impl App {
         };
         let wheel = mouse_wheel().1;
         if wheel != 0.0 && raw_mouse_pos.x > SIDEBAR_SIZE {
-            let zoom = if wheel > 0.0 { 1.1 } else { 1.0 / 1.1 };
+            let clamped = wheel.clamp(-3., 3.);
+            let zoom = 1.1f32.powf(clamped);
             let mouse_before = camera.screen_to_world(raw_mouse_pos);
             self.camera_zoom *= zoom;
             self.camera_zoom = self.camera_zoom.clamp(0.05, 20.);
@@ -201,7 +202,7 @@ impl App {
         }
     }
 
-    fn handle_camera_pan(&mut self) -> bool {
+    fn camera_pan(&mut self) -> bool {
         let camera = self.camera();
         let middle_mouse_down = is_mouse_button_down(MouseButton::Middle);
         let middle_mouse_pressed = is_mouse_button_pressed(MouseButton::Middle);
@@ -222,7 +223,7 @@ impl App {
         }
     }
 
-    fn handle_state_update(&mut self) {
+    fn state_update(&mut self) {
         let raw_mouse_pos = {
             let pos = mouse_position();
             Vec2::new(pos.0, pos.1)
@@ -247,7 +248,11 @@ impl App {
                     if !self.selected_ids.is_empty()
                         && let Some(g_rect) = group_rect
                     {
-                        clicked_handle = get_active_handle(g_rect, mouse_pos_world, HANDLE_SIZE);
+                        clicked_handle = get_active_handle(
+                            g_rect,
+                            mouse_pos_world,
+                            HANDLE_SIZE / self.camera_zoom,
+                        );
                     }
 
                     if let Some(handle) = clicked_handle {
@@ -402,7 +407,6 @@ impl App {
                 let show = rect.w > 2.0 && rect.h > 2.0;
 
                 if !mouse_down {
-                    // Only add if it meets a minimum size threshold to prevent accidental clicks
                     if show {
                         let id = new_id();
                         self.objects.insert(id, Object::Rect { rect, kind: *kind });
@@ -473,9 +477,20 @@ impl App {
             );
         }
         set_default_camera();
+        const FONT_SIZE: f32 = 32.;
+        const OFFSET: f32 = 16.;
+        if let Some(g_rect) = group_rect {
+            draw_text(
+                format!("{:.2} x {:.2}", g_rect.w, g_rect.h),
+                SIDEBAR_SIZE + OFFSET,
+                FONT_SIZE / 2. + OFFSET,
+                FONT_SIZE,
+                DARKGRAY,
+            );
+        }
     }
 
-    fn handle_side_panel(&mut self) {
+    fn side_panel(&mut self) {
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
         let raw_mouse_pos = {
             let pos = mouse_position();
@@ -536,13 +551,11 @@ async fn main() {
     loop {
         clear_background(LIGHTGRAY);
 
-        app.handle_camera_zoom();
-        app.handle_camera_pan();
-        app.handle_state_update();
-        app.handle_side_panel();
+        app.camera_zoom();
+        app.camera_pan();
+        app.state_update();
+        app.side_panel();
 
-        dbg!(app.camera_pos);
-        dbg!(app.camera_zoom);
         next_frame().await;
     }
 }
