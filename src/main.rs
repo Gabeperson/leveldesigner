@@ -1,5 +1,6 @@
 use macroquad::input::KeyCode::D;
 use macroquad::prelude::*;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -125,6 +126,10 @@ enum InteractionState {
     Selecting {
         start: Vec2,
     },
+    Selected {
+        initial_positions: RefCell<HashMap<u32, Vec2>>,
+        mouse_start: Vec2,
+    },
     Moving {
         initial_positions: HashMap<u32, Vec2>,
         mouse_start: Vec2,
@@ -153,11 +158,19 @@ fn new_id() -> u32 {
     ID.fetch_add(1, Ordering::Relaxed)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+struct Snapshot {
+    objects: HashMap<u32, Object>,
+    selected_ids: HashSet<u32>,
+}
+
+#[derive(Debug, Clone)]
 struct App {
     state: InteractionState,
-    selected_ids: HashSet<u32>,
     objects: HashMap<u32, Object>,
+    selected_ids: HashSet<u32>,
+    undo_snapshots: Vec<Snapshot>,
+    redo_snapshots: Vec<Snapshot>,
     camera_zoom: f32,
     camera_pos: Vec2,
     pan_start: Vec2,
@@ -167,8 +180,10 @@ impl App {
     fn new() -> Self {
         Self {
             state: InteractionState::None,
-            selected_ids: HashSet::new(),
             objects: HashMap::new(),
+            selected_ids: HashSet::new(),
+            undo_snapshots: Vec::new(),
+            redo_snapshots: Vec::new(),
             camera_zoom: 1.,
             camera_pos: Vec2::ZERO,
             pan_start: Vec2::ZERO,
@@ -223,6 +238,58 @@ impl App {
         }
     }
 
+    fn push_snapshot(
+        objects: &mut HashMap<u32, Object>,
+        selected_ids: &mut HashSet<u32>,
+        undo_snapshots: &mut Vec<Snapshot>,
+        redo_snapshots: &mut Vec<Snapshot>,
+    ) {
+        redo_snapshots.clear();
+        undo_snapshots.push(Snapshot {
+            objects: objects.clone(),
+            selected_ids: selected_ids.clone(),
+        })
+    }
+
+    fn undo(&mut self) {
+        if let Some(snapshot) = self.undo_snapshots.pop() {
+            self.redo_snapshots.push(Snapshot {
+                objects: self.objects.clone(),
+                selected_ids: self.selected_ids.clone(),
+            });
+            self.objects.clone_from(&snapshot.objects);
+            self.selected_ids.clone_from(&snapshot.selected_ids);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(snapshot) = self.redo_snapshots.pop() {
+            self.undo_snapshots.push(Snapshot {
+                objects: self.objects.clone(),
+                selected_ids: self.selected_ids.clone(),
+            });
+            self.objects.clone_from(&snapshot.objects);
+            self.selected_ids.clone_from(&snapshot.selected_ids);
+        }
+    }
+
+    fn undo_redo(&mut self) {
+        let undo = (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::LeftControl))
+            && !(is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::LeftShift))
+            && is_key_pressed(KeyCode::Z);
+        let redo = (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::LeftControl))
+            && (((is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::LeftShift))
+                && is_key_pressed(KeyCode::Z))
+                || is_key_pressed(KeyCode::Y));
+
+        if undo {
+            self.undo();
+        }
+        if redo {
+            self.redo();
+        }
+    }
+
     fn state_update(&mut self) {
         let raw_mouse_pos = {
             let pos = mouse_position();
@@ -239,6 +306,12 @@ impl App {
         match &self.state {
             InteractionState::None => {
                 if delete {
+                    Self::push_snapshot(
+                        &mut self.objects,
+                        &mut self.selected_ids,
+                        &mut self.undo_snapshots,
+                        &mut self.redo_snapshots,
+                    );
                     for id in &self.selected_ids {
                         self.objects.remove(id);
                     }
@@ -263,6 +336,12 @@ impl App {
                                 initial_object_rects.insert(id, obj.aabb());
                             }
                         }
+                        Self::push_snapshot(
+                            &mut self.objects,
+                            &mut self.selected_ids,
+                            &mut self.undo_snapshots,
+                            &mut self.redo_snapshots,
+                        );
                         self.state = InteractionState::Resizing {
                             handle,
                             initial_group_rect: g_rect,
@@ -298,8 +377,8 @@ impl App {
                                     initial_positions.insert(sel_id, obj.pos());
                                 }
                             }
-                            self.state = InteractionState::Moving {
-                                initial_positions,
+                            self.state = InteractionState::Selected {
+                                initial_positions: RefCell::new(initial_positions),
                                 mouse_start: mouse_pos_world,
                             };
                         } else {
@@ -331,6 +410,34 @@ impl App {
                             self.selected_ids.insert(id);
                         }
                     }
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::Selected {
+                initial_positions,
+                mouse_start,
+            } => {
+                if mouse_down {
+                    let delta = mouse_pos_world - *mouse_start;
+                    if delta.length() > 0.1 {
+                        Self::push_snapshot(
+                            &mut self.objects,
+                            &mut self.selected_ids,
+                            &mut self.undo_snapshots,
+                            &mut self.redo_snapshots,
+                        );
+
+                        for (&id, &init_pos) in &*initial_positions.borrow() {
+                            if let Some(obj) = self.objects.get_mut(&id) {
+                                obj.set_pos(init_pos + delta);
+                            }
+                        }
+                        self.state = InteractionState::Moving {
+                            initial_positions: initial_positions.take(),
+                            mouse_start: *mouse_start,
+                        }
+                    }
+                } else {
                     self.state = InteractionState::None;
                 }
             }
@@ -390,6 +497,13 @@ impl App {
             }
             InteractionState::AddingRectSelected { kind } => {
                 if mouse_pressed {
+                    dbg!(&self.selected_ids);
+                    Self::push_snapshot(
+                        &mut self.objects,
+                        &mut self.selected_ids,
+                        &mut self.undo_snapshots,
+                        &mut self.redo_snapshots,
+                    );
                     self.state = InteractionState::AddingRectDragging {
                         kind: *kind,
                         start: mouse_pos_world,
@@ -410,6 +524,10 @@ impl App {
                     if show {
                         let id = new_id();
                         self.objects.insert(id, Object::Rect { rect, kind: *kind });
+                        self.selected_ids.clear();
+                        self.selected_ids.insert(id);
+                    } else {
+                        self.undo_snapshots.pop();
                     }
                     self.state = InteractionState::None;
                 } else {
@@ -477,13 +595,20 @@ impl App {
             );
         }
         set_default_camera();
-        const FONT_SIZE: f32 = 32.;
+        const FONT_SIZE: f32 = 20.;
         const OFFSET: f32 = 16.;
         if let Some(g_rect) = group_rect {
             draw_text(
-                format!("{:.2} x {:.2}", g_rect.w, g_rect.h),
+                format!("X: {:.2}, Y: {:.2}", g_rect.x, g_rect.y),
                 SIDEBAR_SIZE + OFFSET,
                 FONT_SIZE / 2. + OFFSET,
+                FONT_SIZE,
+                DARKGRAY,
+            );
+            draw_text(
+                format!("Size: {:.2} x {:.2}", g_rect.w, g_rect.h),
+                SIDEBAR_SIZE + OFFSET,
+                FONT_SIZE / 2. + OFFSET + FONT_SIZE,
                 FONT_SIZE,
                 DARKGRAY,
             );
@@ -553,6 +678,7 @@ async fn main() {
 
         app.camera_zoom();
         app.camera_pan();
+        app.undo_redo();
         app.state_update();
         app.side_panel();
 
