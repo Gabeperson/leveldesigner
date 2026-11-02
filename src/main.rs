@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RectKind {
     Regular,
     AntiTp,
@@ -134,6 +134,13 @@ enum InteractionState {
         initial_object_rects: HashMap<u32, Rect>,
         mouse_start: Vec2,
     },
+    AddingRectSelected {
+        kind: RectKind,
+    },
+    AddingRectDragging {
+        kind: RectKind,
+        start: Vec2,
+    },
 }
 
 const HANDLE_SIZE: f32 = 10.0;
@@ -143,7 +150,7 @@ fn new_id() -> u32 {
     ID.fetch_add(1, Ordering::Relaxed)
 }
 
-#[macroquad::main("Level design - Multi-Select")]
+#[macroquad::main("Level design")]
 async fn main() {
     let mut objects = HashMap::new();
 
@@ -178,12 +185,18 @@ async fn main() {
         let mouse_down = is_mouse_button_down(MouseButton::Left);
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
         let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+        let delete = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace);
 
         let group_rect = get_group_rect(&objects, &selected_ids);
 
         match &state {
             InteractionState::None => {
-                if mouse_pressed {
+                if delete {
+                    for id in &selected_ids {
+                        objects.remove(id);
+                    }
+                    selected_ids.clear();
+                } else if mouse_pressed {
                     let mut clicked_handle = None;
                     if !selected_ids.is_empty()
                         && let Some(g_rect) = group_rect
@@ -248,24 +261,7 @@ async fn main() {
                 }
             }
             InteractionState::Selecting { start } => {
-                if mouse_down {
-                    let x = start.x.min(mouse_pos.x);
-                    let y = start.y.min(mouse_pos.y);
-                    let w = (start.x - mouse_pos.x).abs();
-                    let h = (start.y - mouse_pos.y).abs();
-                    draw_rectangle(x, y, w, h, Color::new(0.0, 0.4, 1.0, 0.15));
-                    draw_rectangle_lines_ex(
-                        x,
-                        y,
-                        w,
-                        h,
-                        1.0,
-                        DrawRectangleParams {
-                            color: BLUE,
-                            ..Default::default()
-                        },
-                    );
-                } else {
+                if !mouse_down {
                     let sel_rect = Rect::new(
                         start.x.min(mouse_pos.x),
                         start.y.min(mouse_pos.y),
@@ -339,6 +335,37 @@ async fn main() {
                     state = InteractionState::None;
                 }
             }
+            InteractionState::AddingRectSelected { kind } => {
+                if mouse_pressed {
+                    state = InteractionState::AddingRectDragging {
+                        kind: *kind,
+                        start: mouse_pos,
+                    }
+                }
+            }
+            InteractionState::AddingRectDragging { kind, start } => {
+                let rect = Rect::new(
+                    start.x.min(mouse_pos.x),
+                    start.y.min(mouse_pos.y),
+                    (start.x - mouse_pos.x).abs(),
+                    (start.y - mouse_pos.y).abs(),
+                );
+
+                let show = rect.w > 2.0 && rect.h > 2.0;
+
+                if !mouse_down {
+                    // Only add if it meets a minimum size threshold to prevent accidental clicks
+                    if show {
+                        let id = new_id();
+                        objects.insert(id, Object::Rect { rect, kind: *kind });
+                    }
+                    state = InteractionState::None;
+                } else {
+                    if show {
+                        Object::Rect { rect, kind: *kind }.draw();
+                    }
+                }
+            }
         }
 
         for obj in objects.values() {
@@ -376,6 +403,76 @@ async fn main() {
                         ..Default::default()
                     },
                 );
+            }
+        }
+
+        if let InteractionState::Selecting { start } = &state {
+            assert!(mouse_down);
+            let x = start.x.min(mouse_pos.x);
+            let y = start.y.min(mouse_pos.y);
+            let w = (start.x - mouse_pos.x).abs();
+            let h = (start.y - mouse_pos.y).abs();
+            draw_rectangle(x, y, w, h, Color::new(0.0, 0.4, 1.0, 0.15));
+            draw_rectangle_lines_ex(
+                x,
+                y,
+                w,
+                h,
+                1.0,
+                DrawRectangleParams {
+                    color: BLUE,
+                    ..Default::default()
+                },
+            );
+        }
+
+        const SIDEBAR_SIZE: f32 = 30.;
+        const PATCH_SIZE: f32 = 20.;
+
+        let buttons = [
+            (RectKind::Regular, Color::from_rgba(165, 216, 255, 255)),
+            (RectKind::AntiTp, Color::new(1., 0.35, 0.9, 1.)),
+            (RectKind::Tar, Color::new(0.1, 0.1, 0.1, 1.0)),
+            (RectKind::Hot, Color::new(1.0, 0.8, 0.15, 1.0)),
+        ];
+
+        let mut start = 0.;
+        draw_rectangle(0., 0., SIDEBAR_SIZE, screen_height(), WHITE);
+
+        for (kind, color) in buttons {
+            let rect = Rect::new(
+                (SIDEBAR_SIZE - PATCH_SIZE) / 2.,
+                start + PATCH_SIZE / 2.,
+                PATCH_SIZE,
+                PATCH_SIZE,
+            );
+            let outer_rect = Rect::new(0., start, SIDEBAR_SIZE, SIDEBAR_SIZE);
+            start += SIDEBAR_SIZE;
+            draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
+            if let InteractionState::AddingRectSelected {
+                kind: interact_rectkind,
+            }
+            | InteractionState::AddingRectDragging {
+                kind: interact_rectkind,
+                ..
+            } = &state
+                && kind == *interact_rectkind
+            {
+                draw_rectangle_lines_ex(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    3.,
+                    DrawRectangleParams {
+                        color: GRAY,
+                        ..Default::default()
+                    },
+                )
+            }
+
+            if mouse_pressed && outer_rect.contains(mouse_pos) {
+                state = InteractionState::AddingRectSelected { kind };
             }
         }
 
