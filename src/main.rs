@@ -1,4 +1,5 @@
 use macroquad::prelude::*;
+use macroquad::ui::{root_ui, widgets};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -158,6 +159,13 @@ fn new_id() -> u32 {
 }
 
 #[derive(Debug, Clone)]
+struct ContextMenu {
+    pos: Vec2,
+    window_id: u64,
+    object_id: u32,
+}
+
+#[derive(Debug, Clone)]
 struct Snapshot {
     ordering: Vec<u32>,
     objects: HashMap<u32, Object>,
@@ -172,6 +180,7 @@ struct App {
     selected_ids: HashSet<u32>,
     undo_snapshots: Vec<Snapshot>,
     redo_snapshots: Vec<Snapshot>,
+    context_menu: Option<ContextMenu>,
     camera_zoom: f32,
     camera_pos: Vec2,
     pan_start: Vec2,
@@ -186,6 +195,7 @@ impl App {
             selected_ids: HashSet::new(),
             undo_snapshots: Vec::new(),
             redo_snapshots: Vec::new(),
+            context_menu: None,
             camera_zoom: 1.,
             camera_pos: Vec2::ZERO,
             pan_start: Vec2::ZERO,
@@ -661,7 +671,7 @@ impl App {
     }
 
     fn side_panel(&mut self) {
-        let mut num = if is_key_pressed(KeyCode::Key1) {
+        let num = if is_key_pressed(KeyCode::Key1) {
             Some(0)
         } else if is_key_pressed(KeyCode::Key2) {
             Some(1)
@@ -736,6 +746,24 @@ impl App {
             }
         }
     }
+
+    fn context_menu(&mut self) {
+        let Some(ContextMenu {
+            pos,
+            window_id,
+            object_id,
+        }) = self.context_menu
+        else {
+            return;
+        };
+
+        const CONTEXTMENU_SIZE: Vec2 = Vec2::new(140., 200.);
+        widgets::Window::new(window_id, pos, CONTEXTMENU_SIZE).ui(&mut root_ui(), |ui| {
+            if ui.button(None, "Test") {
+                println!("Here!");
+            }
+        });
+    }
 }
 
 #[macroquad::main("Level design")]
@@ -750,6 +778,20 @@ async fn main() {
         app.state_update();
         app.render();
         app.side_panel();
+
+        let mousepos = mouse_position();
+        if is_key_pressed(KeyCode::U) {
+            let window_id = ::rand::random();
+            app.context_menu = Some(ContextMenu {
+                pos: Vec2::new(mousepos.0, mousepos.1),
+                window_id,
+                object_id: 0,
+            })
+        }
+        if is_key_pressed(KeyCode::I) {
+            app.context_menu = None;
+        }
+        app.context_menu();
 
         next_frame().await;
     }
