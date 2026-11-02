@@ -1,3 +1,4 @@
+use macroquad::input::KeyCode::D;
 use macroquad::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -106,7 +107,7 @@ impl Object {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum HandleKind {
     TopLeft,
     TopMiddle,
@@ -118,7 +119,7 @@ enum HandleKind {
     LeftMiddle,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum InteractionState {
     None,
     Selecting {
@@ -144,84 +145,129 @@ enum InteractionState {
 }
 
 const HANDLE_SIZE: f32 = 10.0;
+const SIDEBAR_SIZE: f32 = 30.;
+const PATCH_SIZE: f32 = 20.;
 
 fn new_id() -> u32 {
     static ID: AtomicU32 = AtomicU32::new(1);
     ID.fetch_add(1, Ordering::Relaxed)
 }
 
-#[macroquad::main("Level design")]
-async fn main() {
-    let mut objects = HashMap::new();
+#[derive(Debug)]
+struct App {
+    state: InteractionState,
+    selected_ids: HashSet<u32>,
+    objects: HashMap<u32, Object>,
+    camera_zoom: f32,
+    camera_pos: Vec2,
+    pan_start: Vec2,
+}
 
-    let id1 = new_id();
-    objects.insert(
-        id1,
-        Object::Rect {
-            rect: Rect::new(200.0, 150.0, 180.0, 120.0),
-            kind: RectKind::Regular,
-        },
-    );
+impl App {
+    fn new() -> Self {
+        Self {
+            state: InteractionState::None,
+            selected_ids: HashSet::new(),
+            objects: HashMap::new(),
+            camera_zoom: 1.,
+            camera_pos: Vec2::ZERO,
+            pan_start: Vec2::ZERO,
+        }
+    }
 
-    let id2 = new_id();
-    objects.insert(
-        id2,
-        Object::Rect {
-            rect: Rect::new(420.0, 220.0, 150.0, 100.0),
-            kind: RectKind::Regular,
-        },
-    );
+    fn camera(&self) -> Camera2D {
+        Camera2D {
+            zoom: self.camera_zoom * Vec2::new(2.0 / screen_width(), -2.0 / screen_height()),
+            target: self.camera_pos,
+            ..Default::default()
+        }
+    }
 
-    let mut selected_ids: HashSet<u32> = HashSet::new();
-    let mut state = InteractionState::None;
-
-    loop {
-        clear_background(LIGHTGRAY);
-
-        let mouse_pos = {
+    fn handle_camera_zoom(&mut self) {
+        let camera = self.camera();
+        let raw_mouse_pos = {
             let pos = mouse_position();
             Vec2::new(pos.0, pos.1)
         };
+        let wheel = mouse_wheel().1;
+        if wheel != 0.0 && raw_mouse_pos.x > SIDEBAR_SIZE {
+            let zoom = if wheel > 0.0 { 1.1 } else { 1.0 / 1.1 };
+            let mouse_before = camera.screen_to_world(raw_mouse_pos);
+            self.camera_zoom *= zoom;
+            self.camera_zoom = self.camera_zoom.clamp(0.05, 20.);
+            let updated = self.camera();
+            let mouse_after = updated.screen_to_world(raw_mouse_pos);
+            self.camera_pos += mouse_before - mouse_after;
+        }
+    }
+
+    fn handle_camera_pan(&mut self) -> bool {
+        let camera = self.camera();
+        let middle_mouse_down = is_mouse_button_down(MouseButton::Middle);
+        let middle_mouse_pressed = is_mouse_button_pressed(MouseButton::Middle);
+        let raw_mouse_pos = {
+            let pos = mouse_position();
+            Vec2::new(pos.0, pos.1)
+        };
+
+        if middle_mouse_pressed {
+            self.pan_start = camera.screen_to_world(raw_mouse_pos);
+        }
+        if middle_mouse_down {
+            let current = camera.screen_to_world(raw_mouse_pos);
+            self.camera_pos += self.pan_start - current;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn handle_state_update(&mut self) {
+        let raw_mouse_pos = {
+            let pos = mouse_position();
+            Vec2::new(pos.0, pos.1)
+        };
+        let camera = self.camera();
+        set_camera(&camera);
+        let mouse_pos_world = camera.screen_to_world(raw_mouse_pos);
         let mouse_down = is_mouse_button_down(MouseButton::Left);
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
         let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
         let delete = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace);
-
-        let group_rect = get_group_rect(&objects, &selected_ids);
-
-        match &state {
+        let group_rect = get_group_rect(&self.objects, &self.selected_ids);
+        match &self.state {
             InteractionState::None => {
                 if delete {
-                    for id in &selected_ids {
-                        objects.remove(id);
+                    for id in &self.selected_ids {
+                        self.objects.remove(id);
                     }
-                    selected_ids.clear();
+                    self.selected_ids.clear();
                 } else if mouse_pressed {
                     let mut clicked_handle = None;
-                    if !selected_ids.is_empty()
+                    if !self.selected_ids.is_empty()
                         && let Some(g_rect) = group_rect
                     {
-                        clicked_handle = get_active_handle(g_rect, mouse_pos, HANDLE_SIZE);
+                        clicked_handle = get_active_handle(g_rect, mouse_pos_world, HANDLE_SIZE);
                     }
 
                     if let Some(handle) = clicked_handle {
                         let g_rect = group_rect.unwrap();
                         let mut initial_object_rects = HashMap::new();
-                        for &id in &selected_ids {
-                            if let Some(obj) = objects.get(&id) {
+                        for &id in &self.selected_ids {
+                            if let Some(obj) = self.objects.get(&id) {
                                 initial_object_rects.insert(id, obj.aabb());
                             }
                         }
-                        state = InteractionState::Resizing {
+                        self.state = InteractionState::Resizing {
                             handle,
                             initial_group_rect: g_rect,
                             initial_object_rects,
-                            mouse_start: mouse_pos,
+                            mouse_start: mouse_pos_world,
                         };
                     } else {
                         let mut clicked_id = None;
-                        for (&id, obj) in &objects {
-                            if obj.contains(mouse_pos) {
+                        for (&id, obj) in &self.objects {
+                            if obj.contains(mouse_pos_world) {
                                 clicked_id = Some(id);
                                 break;
                             }
@@ -229,33 +275,35 @@ async fn main() {
 
                         if let Some(id) = clicked_id {
                             if shift_down {
-                                if selected_ids.contains(&id) {
-                                    selected_ids.remove(&id);
+                                if self.selected_ids.contains(&id) {
+                                    self.selected_ids.remove(&id);
                                 } else {
-                                    selected_ids.insert(id);
+                                    self.selected_ids.insert(id);
                                 }
                             } else {
-                                if !selected_ids.contains(&id) {
-                                    selected_ids.clear();
-                                    selected_ids.insert(id);
+                                if !self.selected_ids.contains(&id) {
+                                    self.selected_ids.clear();
+                                    self.selected_ids.insert(id);
                                 }
                             }
 
                             let mut initial_positions = HashMap::new();
-                            for &sel_id in &selected_ids {
-                                if let Some(obj) = objects.get(&sel_id) {
+                            for &sel_id in &self.selected_ids {
+                                if let Some(obj) = self.objects.get(&sel_id) {
                                     initial_positions.insert(sel_id, obj.pos());
                                 }
                             }
-                            state = InteractionState::Moving {
+                            self.state = InteractionState::Moving {
                                 initial_positions,
-                                mouse_start: mouse_pos,
+                                mouse_start: mouse_pos_world,
                             };
                         } else {
                             if !shift_down {
-                                selected_ids.clear();
+                                self.selected_ids.clear();
                             }
-                            state = InteractionState::Selecting { start: mouse_pos };
+                            self.state = InteractionState::Selecting {
+                                start: mouse_pos_world,
+                            };
                         }
                     }
                 }
@@ -263,22 +311,22 @@ async fn main() {
             InteractionState::Selecting { start } => {
                 if !mouse_down {
                     let sel_rect = Rect::new(
-                        start.x.min(mouse_pos.x),
-                        start.y.min(mouse_pos.y),
-                        (start.x - mouse_pos.x).abs(),
-                        (start.y - mouse_pos.y).abs(),
+                        start.x.min(mouse_pos_world.x),
+                        start.y.min(mouse_pos_world.y),
+                        (start.x - mouse_pos_world.x).abs(),
+                        (start.y - mouse_pos_world.y).abs(),
                     );
 
                     if !shift_down {
-                        selected_ids.clear();
+                        self.selected_ids.clear();
                     }
 
-                    for (&id, obj) in &objects {
+                    for (&id, obj) in &self.objects {
                         if obj.overlaps_rect(sel_rect) {
-                            selected_ids.insert(id);
+                            self.selected_ids.insert(id);
                         }
                     }
-                    state = InteractionState::None;
+                    self.state = InteractionState::None;
                 }
             }
             InteractionState::Moving {
@@ -286,14 +334,14 @@ async fn main() {
                 mouse_start,
             } => {
                 if mouse_down {
-                    let delta = mouse_pos - *mouse_start;
+                    let delta = mouse_pos_world - *mouse_start;
                     for (&id, &init_pos) in initial_positions {
-                        if let Some(obj) = objects.get_mut(&id) {
+                        if let Some(obj) = self.objects.get_mut(&id) {
                             obj.set_pos(init_pos + delta);
                         }
                     }
                 } else {
-                    state = InteractionState::None;
+                    self.state = InteractionState::None;
                 }
             }
             InteractionState::Resizing {
@@ -303,7 +351,7 @@ async fn main() {
                 mouse_start,
             } => {
                 if mouse_down {
-                    let delta = mouse_pos - *mouse_start;
+                    let delta = mouse_pos_world - *mouse_start;
                     let new_group_rect = resized(*initial_group_rect, *handle, delta);
 
                     let scale_x = if initial_group_rect.w > 0.0 {
@@ -318,7 +366,7 @@ async fn main() {
                     };
 
                     for (&id, init_rect) in initial_object_rects {
-                        if let Some(obj) = objects.get_mut(&id) {
+                        if let Some(obj) = self.objects.get_mut(&id) {
                             let rel_x = init_rect.x - initial_group_rect.x;
                             let rel_y = init_rect.y - initial_group_rect.y;
 
@@ -332,23 +380,23 @@ async fn main() {
                         }
                     }
                 } else {
-                    state = InteractionState::None;
+                    self.state = InteractionState::None;
                 }
             }
             InteractionState::AddingRectSelected { kind } => {
                 if mouse_pressed {
-                    state = InteractionState::AddingRectDragging {
+                    self.state = InteractionState::AddingRectDragging {
                         kind: *kind,
-                        start: mouse_pos,
+                        start: mouse_pos_world,
                     }
                 }
             }
             InteractionState::AddingRectDragging { kind, start } => {
                 let rect = Rect::new(
-                    start.x.min(mouse_pos.x),
-                    start.y.min(mouse_pos.y),
-                    (start.x - mouse_pos.x).abs(),
-                    (start.y - mouse_pos.y).abs(),
+                    start.x.min(mouse_pos_world.x),
+                    start.y.min(mouse_pos_world.y),
+                    (start.x - mouse_pos_world.x).abs(),
+                    (start.y - mouse_pos_world.y).abs(),
                 );
 
                 let show = rect.w > 2.0 && rect.h > 2.0;
@@ -357,9 +405,9 @@ async fn main() {
                     // Only add if it meets a minimum size threshold to prevent accidental clicks
                     if show {
                         let id = new_id();
-                        objects.insert(id, Object::Rect { rect, kind: *kind });
+                        self.objects.insert(id, Object::Rect { rect, kind: *kind });
                     }
-                    state = InteractionState::None;
+                    self.state = InteractionState::None;
                 } else {
                     if show {
                         Object::Rect { rect, kind: *kind }.draw();
@@ -367,8 +415,7 @@ async fn main() {
                 }
             }
         }
-
-        for obj in objects.values() {
+        for obj in self.objects.values() {
             obj.draw();
         }
 
@@ -378,15 +425,15 @@ async fn main() {
                 g_rect.y,
                 g_rect.w,
                 g_rect.h,
-                2.0,
+                2.0 / self.camera_zoom,
                 DrawRectangleParams {
                     color: DARKGRAY,
                     ..Default::default()
                 },
             );
 
-            for (_handle, rect) in get_handle_rects(g_rect, HANDLE_SIZE) {
-                let color = if on_handle(rect, mouse_pos) {
+            for (_handle, rect) in get_handle_rects(g_rect, HANDLE_SIZE / self.camera_zoom) {
+                let color = if on_handle(rect, mouse_pos_world) {
                     RED
                 } else {
                     WHITE
@@ -397,7 +444,7 @@ async fn main() {
                     rect.y,
                     rect.w,
                     rect.h,
-                    1.,
+                    1. / self.camera_zoom,
                     DrawRectangleParams {
                         color: BLACK,
                         ..Default::default()
@@ -406,12 +453,12 @@ async fn main() {
             }
         }
 
-        if let InteractionState::Selecting { start } = &state {
+        if let InteractionState::Selecting { start } = &self.state {
             assert!(mouse_down);
-            let x = start.x.min(mouse_pos.x);
-            let y = start.y.min(mouse_pos.y);
-            let w = (start.x - mouse_pos.x).abs();
-            let h = (start.y - mouse_pos.y).abs();
+            let x = start.x.min(mouse_pos_world.x);
+            let y = start.y.min(mouse_pos_world.y);
+            let w = (start.x - mouse_pos_world.x).abs();
+            let h = (start.y - mouse_pos_world.y).abs();
             draw_rectangle(x, y, w, h, Color::new(0.0, 0.4, 1.0, 0.15));
             draw_rectangle_lines_ex(
                 x,
@@ -425,10 +472,15 @@ async fn main() {
                 },
             );
         }
+        set_default_camera();
+    }
 
-        const SIDEBAR_SIZE: f32 = 30.;
-        const PATCH_SIZE: f32 = 20.;
-
+    fn handle_side_panel(&mut self) {
+        let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
+        let raw_mouse_pos = {
+            let pos = mouse_position();
+            Vec2::new(pos.0, pos.1)
+        };
         let buttons = [
             (RectKind::Regular, Color::from_rgba(165, 216, 255, 255)),
             (RectKind::AntiTp, Color::new(1., 0.35, 0.9, 1.)),
@@ -455,7 +507,7 @@ async fn main() {
             | InteractionState::AddingRectDragging {
                 kind: interact_rectkind,
                 ..
-            } = &state
+            } = &self.state
                 && kind == *interact_rectkind
             {
                 draw_rectangle_lines_ex(
@@ -471,11 +523,26 @@ async fn main() {
                 )
             }
 
-            if mouse_pressed && outer_rect.contains(mouse_pos) {
-                state = InteractionState::AddingRectSelected { kind };
+            if mouse_pressed && outer_rect.contains(raw_mouse_pos) {
+                self.state = InteractionState::AddingRectSelected { kind };
             }
         }
+    }
+}
 
+#[macroquad::main("Level design")]
+async fn main() {
+    let mut app = App::new();
+    loop {
+        clear_background(LIGHTGRAY);
+
+        app.handle_camera_zoom();
+        app.handle_camera_pan();
+        app.handle_state_update();
+        app.handle_side_panel();
+
+        dbg!(app.camera_pos);
+        dbg!(app.camera_zoom);
         next_frame().await;
     }
 }
