@@ -1,4 +1,3 @@
-use macroquad::input::KeyCode::D;
 use macroquad::prelude::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -295,6 +294,7 @@ impl App {
             let pos = mouse_position();
             Vec2::new(pos.0, pos.1)
         };
+        let in_sidebar = raw_mouse_pos.x <= SIDEBAR_SIZE;
         let camera = self.camera();
         set_camera(&camera);
         let mouse_pos_world = camera.screen_to_world(raw_mouse_pos);
@@ -316,7 +316,7 @@ impl App {
                         self.objects.remove(id);
                     }
                     self.selected_ids.clear();
-                } else if mouse_pressed {
+                } else if mouse_pressed && !in_sidebar {
                     let mut clicked_handle = None;
                     if !self.selected_ids.is_empty()
                         && let Some(g_rect) = group_rect
@@ -496,8 +496,7 @@ impl App {
                 }
             }
             InteractionState::AddingRectSelected { kind } => {
-                if mouse_pressed {
-                    dbg!(&self.selected_ids);
+                if mouse_pressed && !in_sidebar {
                     Self::push_snapshot(
                         &mut self.objects,
                         &mut self.selected_ids,
@@ -710,11 +709,12 @@ fn get_group_rect(objects: &HashMap<u32, Object>, selected_ids: &HashSet<u32>) -
 
     for id in selected_ids {
         if let Some(obj) = objects.get(id) {
-            let rect = obj.aabb();
-            min_x = min_x.min(rect.x);
-            min_y = min_y.min(rect.y);
-            max_x = max_x.max(rect.x + rect.w);
-            max_y = max_y.max(rect.y + rect.h);
+            let size = obj.size();
+            let pos = obj.pos();
+            min_x = min_x.min(pos.x);
+            min_y = min_y.min(pos.y);
+            max_x = max_x.max(pos.x + size.x);
+            max_y = max_y.max(pos.y + size.y);
         }
     }
 
