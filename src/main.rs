@@ -159,6 +159,7 @@ fn new_id() -> u32 {
 
 #[derive(Debug, Clone)]
 struct Snapshot {
+    ordering: Vec<u32>,
     objects: HashMap<u32, Object>,
     selected_ids: HashSet<u32>,
 }
@@ -166,6 +167,7 @@ struct Snapshot {
 #[derive(Debug, Clone)]
 struct App {
     state: InteractionState,
+    ordering: Vec<u32>,
     objects: HashMap<u32, Object>,
     selected_ids: HashSet<u32>,
     undo_snapshots: Vec<Snapshot>,
@@ -179,6 +181,7 @@ impl App {
     fn new() -> Self {
         Self {
             state: InteractionState::None,
+            ordering: Vec::new(),
             objects: HashMap::new(),
             selected_ids: HashSet::new(),
             undo_snapshots: Vec::new(),
@@ -238,13 +241,15 @@ impl App {
     }
 
     fn push_snapshot(
-        objects: &mut HashMap<u32, Object>,
-        selected_ids: &mut HashSet<u32>,
+        ordering: &[u32],
+        objects: &HashMap<u32, Object>,
+        selected_ids: &HashSet<u32>,
         undo_snapshots: &mut Vec<Snapshot>,
         redo_snapshots: &mut Vec<Snapshot>,
     ) {
         redo_snapshots.clear();
         undo_snapshots.push(Snapshot {
+            ordering: ordering.to_owned(),
             objects: objects.clone(),
             selected_ids: selected_ids.clone(),
         })
@@ -255,9 +260,11 @@ impl App {
             self.redo_snapshots.push(Snapshot {
                 objects: self.objects.clone(),
                 selected_ids: self.selected_ids.clone(),
+                ordering: self.ordering.clone(),
             });
-            self.objects.clone_from(&snapshot.objects);
-            self.selected_ids.clone_from(&snapshot.selected_ids);
+            self.objects = snapshot.objects;
+            self.selected_ids = snapshot.selected_ids;
+            self.ordering = snapshot.ordering;
         }
     }
 
@@ -266,9 +273,11 @@ impl App {
             self.undo_snapshots.push(Snapshot {
                 objects: self.objects.clone(),
                 selected_ids: self.selected_ids.clone(),
+                ordering: self.ordering.clone(),
             });
-            self.objects.clone_from(&snapshot.objects);
-            self.selected_ids.clone_from(&snapshot.selected_ids);
+            self.objects = snapshot.objects;
+            self.selected_ids = snapshot.selected_ids;
+            self.ordering = snapshot.ordering;
         }
     }
 
@@ -307,14 +316,16 @@ impl App {
             InteractionState::None => {
                 if delete {
                     Self::push_snapshot(
-                        &mut self.objects,
-                        &mut self.selected_ids,
+                        &self.ordering,
+                        &self.objects,
+                        &self.selected_ids,
                         &mut self.undo_snapshots,
                         &mut self.redo_snapshots,
                     );
                     for id in &self.selected_ids {
                         self.objects.remove(id);
                     }
+                    self.ordering.retain(|id| !self.selected_ids.contains(id));
                     self.selected_ids.clear();
                 } else if mouse_pressed && !in_sidebar {
                     let mut clicked_handle = None;
@@ -337,8 +348,9 @@ impl App {
                             }
                         }
                         Self::push_snapshot(
-                            &mut self.objects,
-                            &mut self.selected_ids,
+                            &self.ordering,
+                            &self.objects,
+                            &self.selected_ids,
                             &mut self.undo_snapshots,
                             &mut self.redo_snapshots,
                         );
@@ -421,8 +433,9 @@ impl App {
                     let delta = mouse_pos_world - *mouse_start;
                     if delta.length() > 0.1 {
                         Self::push_snapshot(
-                            &mut self.objects,
-                            &mut self.selected_ids,
+                            &self.ordering,
+                            &self.objects,
+                            &self.selected_ids,
                             &mut self.undo_snapshots,
                             &mut self.redo_snapshots,
                         );
@@ -498,11 +511,13 @@ impl App {
             InteractionState::AddingRectSelected { kind } => {
                 if mouse_pressed && !in_sidebar {
                     Self::push_snapshot(
-                        &mut self.objects,
-                        &mut self.selected_ids,
+                        &self.ordering,
+                        &self.objects,
+                        &self.selected_ids,
                         &mut self.undo_snapshots,
                         &mut self.redo_snapshots,
                     );
+                    self.selected_ids.clear();
                     self.state = InteractionState::AddingRectDragging {
                         kind: *kind,
                         start: mouse_pos_world,
@@ -523,6 +538,7 @@ impl App {
                     if show {
                         let id = new_id();
                         self.objects.insert(id, Object::Rect { rect, kind: *kind });
+                        self.ordering.push(id);
                         self.selected_ids.clear();
                         self.selected_ids.insert(id);
                     } else {
@@ -536,8 +552,38 @@ impl App {
                 }
             }
         }
-        for obj in self.objects.values() {
+        set_default_camera();
+    }
+
+    fn render(&mut self) {
+        let raw_mouse_pos = {
+            let pos = mouse_position();
+            Vec2::new(pos.0, pos.1)
+        };
+        let camera = self.camera();
+        set_camera(&camera);
+        let mouse_pos_world = camera.screen_to_world(raw_mouse_pos);
+        let mouse_down = is_mouse_button_down(MouseButton::Left);
+        let group_rect = get_group_rect(&self.objects, &self.selected_ids);
+
+        for id in &self.ordering {
+            let obj = &self.objects[id];
             obj.draw();
+        }
+
+        if let InteractionState::AddingRectDragging { kind, start } = &self.state {
+            let rect = Rect::new(
+                start.x.min(mouse_pos_world.x),
+                start.y.min(mouse_pos_world.y),
+                (start.x - mouse_pos_world.x).abs(),
+                (start.y - mouse_pos_world.y).abs(),
+            );
+
+            let show = rect.w > 2.0 && rect.h > 2.0;
+
+            if mouse_down && show {
+                Object::Rect { rect, kind: *kind }.draw();
+            }
         }
 
         if let Some(g_rect) = group_rect {
@@ -615,6 +661,17 @@ impl App {
     }
 
     fn side_panel(&mut self) {
+        let mut num = if is_key_pressed(KeyCode::Key1) {
+            Some(0)
+        } else if is_key_pressed(KeyCode::Key2) {
+            Some(1)
+        } else if is_key_pressed(KeyCode::Key3) {
+            Some(2)
+        } else if is_key_pressed(KeyCode::Key4) {
+            Some(3)
+        } else {
+            None
+        };
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
         let raw_mouse_pos = {
             let pos = mouse_position();
@@ -626,6 +683,18 @@ impl App {
             (RectKind::Tar, Color::new(0.1, 0.1, 0.1, 1.0)),
             (RectKind::Hot, Color::new(1.0, 0.8, 0.15, 1.0)),
         ];
+
+        if let Some(num) = num {
+            if let InteractionState::AddingRectSelected { kind } = &self.state {
+                if buttons[num].0 == *kind {
+                    self.state = InteractionState::None;
+                }
+            } else {
+                self.state = InteractionState::AddingRectSelected {
+                    kind: buttons[num].0,
+                }
+            }
+        }
 
         let mut start = 0.;
         draw_rectangle(0., 0., SIDEBAR_SIZE, screen_height(), WHITE);
@@ -679,6 +748,7 @@ async fn main() {
         app.camera_pan();
         app.undo_redo();
         app.state_update();
+        app.render();
         app.side_panel();
 
         next_frame().await;
