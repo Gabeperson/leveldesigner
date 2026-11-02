@@ -1,5 +1,4 @@
 use macroquad::prelude::*;
-use macroquad::ui::{root_ui, widgets};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -106,6 +105,12 @@ impl Object {
             }
         }
     }
+
+    fn context_menu_target(&self, id: u32) -> ContextMenuTarget {
+        match self {
+            Object::Rect { .. } => ContextMenuTarget::SingleObject { id },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -158,11 +163,49 @@ fn new_id() -> u32 {
     ID.fetch_add(1, Ordering::Relaxed)
 }
 
+#[derive(Debug, Clone, Default)]
+enum ContextMenuTarget {
+    SingleObject {
+        id: u32,
+    },
+    #[default]
+    MultiObjects,
+}
+
+impl ContextMenuTarget {
+    fn options(&self) -> &[&str] {
+        match self {
+            ContextMenuTarget::SingleObject { .. } => &[
+                "Send backward",
+                "Send forward",
+                "Send to back",
+                "Send to front",
+            ],
+            ContextMenuTarget::MultiObjects => &["Send to back", "Send to front"],
+        }
+    }
+    fn apply(&self, app: &mut App, n: usize) {
+        match self {
+            ContextMenuTarget::SingleObject { id } => match n {
+                0 => app.send_backward(*id),
+                1 => app.send_forward(*id),
+                2 => app.send_to_back_single(*id),
+                3 => app.send_to_front_single(*id),
+                _ => {}
+            },
+            ContextMenuTarget::MultiObjects => match n {
+                0 => app.send_to_back_multi(),
+                1 => app.send_to_front_multi(),
+                _ => {}
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ContextMenu {
     pos: Vec2,
-    window_id: u64,
-    object_id: u32,
+    target: ContextMenuTarget,
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +293,94 @@ impl App {
         }
     }
 
+    fn send_to_back_single(&mut self, id: u32) {
+        if let Some(pos) = self.ordering.iter().position(|&x| x == id) {
+            let id = self.ordering.remove(pos);
+            self.ordering.insert(0, id);
+        }
+    }
+    fn send_to_front_single(&mut self, id: u32) {
+        if let Some(pos) = self.ordering.iter().position(|&x| x == id) {
+            let id = self.ordering.remove(pos);
+            self.ordering.push(id);
+        }
+    }
+
+    fn send_to_back_multi(&mut self) {
+        let mut selected = Vec::new();
+        self.ordering.retain(|id| {
+            if self.selected_ids.contains(id) {
+                selected.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        self.ordering.splice(0..0, selected);
+    }
+
+    fn send_to_front_multi(&mut self) {
+        let mut selected = Vec::new();
+        self.ordering.retain(|id| {
+            if self.selected_ids.contains(id) {
+                selected.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        self.ordering.extend(selected);
+    }
+
+    fn send_backward(&mut self, id: u32) {
+        let Some(index) = self.ordering.iter().position(|&x| x == id) else {
+            return;
+        };
+        if index == 0 {
+            return;
+        }
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let aabb = obj.aabb();
+        let mut target = index - 1;
+        for j in (0..index).rev() {
+            let other = self.ordering[j];
+            if let Some(other) = self.objects.get(&other)
+                && aabb.overlaps(&other.aabb())
+            {
+                target = j;
+                break;
+            }
+        }
+        let id = self.ordering.remove(index);
+        self.ordering.insert(target, id);
+    }
+    fn send_forward(&mut self, id: u32) {
+        let Some(index) = self.ordering.iter().position(|&x| x == id) else {
+            return;
+        };
+        if index + 1 == self.ordering.len() {
+            return;
+        }
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let aabb = obj.aabb();
+        let mut target = index + 1;
+        for j in (index + 1)..self.ordering.len() {
+            let other = self.ordering[j];
+            if let Some(other) = self.objects.get(&other)
+                && aabb.overlaps(&other.aabb())
+            {
+                target = j;
+                break;
+            }
+        }
+        let id = self.ordering.remove(index);
+        self.ordering.insert(target, id);
+    }
+
     fn push_snapshot(
         ordering: &[u32],
         objects: &HashMap<u32, Object>,
@@ -313,12 +444,12 @@ impl App {
             let pos = mouse_position();
             Vec2::new(pos.0, pos.1)
         };
-        let in_sidebar = raw_mouse_pos.x <= SIDEBAR_SIZE;
         let camera = self.camera();
         set_camera(&camera);
         let mouse_pos_world = camera.screen_to_world(raw_mouse_pos);
         let mouse_down = is_mouse_button_down(MouseButton::Left);
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
+        let mouse_right_pressed = is_mouse_button_pressed(MouseButton::Right);
         let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
         let delete = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace);
         let group_rect = get_group_rect(&self.objects, &self.selected_ids);
@@ -337,7 +468,7 @@ impl App {
                     }
                     self.ordering.retain(|id| !self.selected_ids.contains(id));
                     self.selected_ids.clear();
-                } else if mouse_pressed && !in_sidebar {
+                } else if mouse_pressed {
                     let mut clicked_handle = None;
                     if !self.selected_ids.is_empty()
                         && let Some(g_rect) = group_rect
@@ -372,9 +503,10 @@ impl App {
                         };
                     } else {
                         let mut clicked_id = None;
-                        for (&id, obj) in &self.objects {
+                        for id in self.ordering.iter().rev() {
+                            let obj = self.objects[id];
                             if obj.contains(mouse_pos_world) {
-                                clicked_id = Some(id);
+                                clicked_id = Some(*id);
                                 break;
                             }
                         }
@@ -411,6 +543,29 @@ impl App {
                                 start: mouse_pos_world,
                             };
                         }
+                    }
+                }
+                if mouse_right_pressed {
+                    let mut clicked_id = None;
+                    for id in self.ordering.iter().rev() {
+                        let obj = self.objects[id];
+                        if obj.contains(mouse_pos_world) {
+                            clicked_id = Some(*id);
+                            break;
+                        }
+                    }
+                    if let Some(id) = clicked_id {
+                        let target =
+                            if self.selected_ids.contains(&id) && self.selected_ids.len() != 1 {
+                                ContextMenuTarget::MultiObjects
+                            } else {
+                                let obj = self.objects[&id];
+                                obj.context_menu_target(id)
+                            };
+                        self.context_menu = Some(ContextMenu {
+                            pos: raw_mouse_pos,
+                            target,
+                        })
                     }
                 }
             }
@@ -519,7 +674,7 @@ impl App {
                 }
             }
             InteractionState::AddingRectSelected { kind } => {
-                if mouse_pressed && !in_sidebar {
+                if mouse_pressed {
                     Self::push_snapshot(
                         &self.ordering,
                         &self.objects,
@@ -729,10 +884,10 @@ impl App {
                 && kind == *interact_rectkind
             {
                 draw_rectangle_lines_ex(
-                    rect.x,
-                    rect.y,
-                    rect.w,
-                    rect.h,
+                    rect.x - 2.,
+                    rect.y - 2.,
+                    rect.w + 4.,
+                    rect.h + 4.,
                     3.,
                     DrawRectangleParams {
                         color: GRAY,
@@ -748,21 +903,74 @@ impl App {
     }
 
     fn context_menu(&mut self) {
-        let Some(ContextMenu {
-            pos,
-            window_id,
-            object_id,
-        }) = self.context_menu
-        else {
+        let Some(ContextMenu { pos, target }) = &mut self.context_menu else {
             return;
         };
 
-        const CONTEXTMENU_SIZE: Vec2 = Vec2::new(140., 200.);
-        widgets::Window::new(window_id, pos, CONTEXTMENU_SIZE).ui(&mut root_ui(), |ui| {
-            if ui.button(None, "Test") {
-                println!("Here!");
+        let items = target.options();
+        const ITEM_HEIGHT: f32 = 50.;
+        let contextmenu_size: Vec2 = Vec2::new(140., ITEM_HEIGHT * items.len() as f32);
+        let menu = Rect::new(pos.x, pos.y, contextmenu_size.x, contextmenu_size.y);
+        let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
+        let esc_pressed = is_key_pressed(KeyCode::Escape);
+        let raw_mouse_pos = {
+            let pos = mouse_position();
+            Vec2::new(pos.0, pos.1)
+        };
+        if esc_pressed || (mouse_pressed && !menu.contains(raw_mouse_pos)) {
+            self.context_menu = None;
+            return;
+        }
+        draw_rectangle_ex(
+            menu.x,
+            menu.y,
+            menu.w,
+            menu.h,
+            DrawRectangleParams {
+                color: WHITE,
+                ..Default::default()
+            },
+        );
+        let mut start = pos.y;
+        for (i, text) in items.iter().enumerate() {
+            let rect = Rect::new(pos.x, start, menu.w, ITEM_HEIGHT);
+            start += ITEM_HEIGHT;
+            let hovered = rect.contains(raw_mouse_pos);
+            if hovered {
+                draw_rectangle_ex(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    DrawRectangleParams {
+                        color: Color::from_rgba(230, 240, 255, 255),
+                        ..Default::default()
+                    },
+                )
             }
-        });
+            let font_size = 20.0;
+            let dims = measure_text(text, None, font_size as u16, 1.0);
+            let x = rect.x + 10.;
+            let y = rect.y + rect.h / 2. + dims.height / 2.;
+            draw_text(text, x, y, font_size, BLACK);
+            if mouse_pressed && hovered {
+                let target = std::mem::take(target);
+                target.apply(self, i);
+                self.context_menu = None;
+                break;
+            }
+        }
+        draw_rectangle_lines_ex(
+            menu.x,
+            menu.y,
+            menu.w,
+            menu.h,
+            1.0,
+            DrawRectangleParams {
+                color: DARKGRAY,
+                ..Default::default()
+            },
+        );
     }
 }
 
@@ -771,26 +979,21 @@ async fn main() {
     let mut app = App::new();
     loop {
         clear_background(LIGHTGRAY);
+        let raw_mouse_pos = {
+            let pos = mouse_position();
+            Vec2::new(pos.0, pos.1)
+        };
+        let in_sidebar = raw_mouse_pos.x <= SIDEBAR_SIZE;
 
         app.camera_zoom();
         app.camera_pan();
         app.undo_redo();
-        app.state_update();
+        if !in_sidebar {
+            app.state_update();
+        }
         app.render();
         app.side_panel();
 
-        let mousepos = mouse_position();
-        if is_key_pressed(KeyCode::U) {
-            let window_id = ::rand::random();
-            app.context_menu = Some(ContextMenu {
-                pos: Vec2::new(mousepos.0, mousepos.1),
-                window_id,
-                object_id: 0,
-            })
-        }
-        if is_key_pressed(KeyCode::I) {
-            app.context_menu = None;
-        }
         app.context_menu();
 
         next_frame().await;
