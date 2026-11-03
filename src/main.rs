@@ -39,7 +39,8 @@ fn parse(s: &str, app: &mut App) {
                 let w = parse_float(split[3]);
                 let h = parse_float(split[4]);
                 app.push_object(Object::Rect {
-                    rect: Rect::new(x, y, w, h),
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
+                    // rect: Rect::new(x, y, w, h),
                     kind: RectKind::Regular,
                 });
             }
@@ -49,7 +50,8 @@ fn parse(s: &str, app: &mut App) {
                 let w = parse_float(split[3]);
                 let h = parse_float(split[4]);
                 app.push_object(Object::Rect {
-                    rect: Rect::new(x, y, w, h),
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
+                    // rect: Rect::new(x, y, w, h),
                     kind: RectKind::AntiTp,
                 });
             }
@@ -59,7 +61,8 @@ fn parse(s: &str, app: &mut App) {
                 let w = parse_float(split[3]);
                 let h = parse_float(split[4]);
                 app.push_object(Object::Rect {
-                    rect: Rect::new(x, y, w, h),
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
+                    // rect: Rect::new(x, y, w, h),
                     kind: RectKind::Tar,
                 });
             }
@@ -69,7 +72,8 @@ fn parse(s: &str, app: &mut App) {
                 let w = parse_float(split[3]);
                 let h = parse_float(split[4]);
                 app.push_object(Object::Rect {
-                    rect: Rect::new(x, y, w, h),
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
+                    // rect: Rect::new(x, y, w, h),
                     kind: RectKind::Hot,
                 });
             }
@@ -89,7 +93,7 @@ fn parse(s: &str, app: &mut App) {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 app.push_object(Object::Player {
-                    pos: Vec2::new(x, y),
+                    pos: Vec2::new(x - PLAYER_WIDTH / 2., y - PLAYER_HEIGHT / 2.),
                 })
             }
             "BIRD" => {
@@ -97,7 +101,7 @@ fn parse(s: &str, app: &mut App) {
                 let y = parse_float(split[2]);
                 let detrange = parse_float(split[3]);
                 app.push_object(Object::Bird {
-                    rect: Rect::new(x, y, 50., 50.),
+                    rect: Rect::new(x - 50. / 2., y - 50. / 2., 50., 50.),
                     detection_range: detrange,
                 });
             }
@@ -105,21 +109,69 @@ fn parse(s: &str, app: &mut App) {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 app.push_object(Object::Heart {
-                    rect: Rect::new(x, y, 48., 48.),
+                    rect: Rect::new(x - 48. / 2., y - 48. / 2., 48., 48.),
                 });
             }
             "BANANA" => {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 app.push_object(Object::Banana {
-                    rect: Rect::new(x, y, 48., 48.),
+                    rect: Rect::new(x - 48. / 2., y - 48. / 2., 48., 48.),
                 });
             }
             "STRAWBERRY" => {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 app.push_object(Object::Strawberry {
-                    rect: Rect::new(x, y, 48., 48.),
+                    rect: Rect::new(x - 48. / 2., y - 48. / 2., 48., 48.),
+                });
+            }
+            "CHECKPOINT" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                app.push_object(Object::Checkpoint {
+                    rect: Rect::new(x - 60. / 2., y, 60., 60.),
+                });
+            }
+            "WAVE" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let detrange = parse_float(split[3]);
+                app.push_object(Object::Wave {
+                    rect: Rect::new(x - 40. / 2., y - 40. / 2., 40., 40.),
+                    detection_range: detrange,
+                });
+            }
+            "TUTORIAL_OBJ" => {
+                let id = match split[1] {
+                    "checkpoint" => "checkpoint",
+                    "close_window" => "close_window",
+                    "bird" => "bird",
+                    "laser" => "laser",
+                    "wave" => "wave",
+                    "framerate" => "framerate",
+                    "fruits" => "fruits",
+                    "heart" => "heart",
+                    "jump" => "jump",
+                    "move" => "move",
+                    "reset" => "reset",
+                    "hot" => "hot",
+                    "pink" => "pink",
+                    "tar1" => "tar1",
+                    "tar2" => "tar2",
+                    "teleport" => "teleport",
+                    "walljump" => "walljump",
+                    "congrats" => "congrats",
+                    "portal" => "portal",
+                    _ => panic!("Invalid tutorial object found: {}", split[1]),
+                };
+                let x = parse_float(split[2]);
+                let y = parse_float(split[3]);
+                let w = 116.0;
+                let h = 88.0;
+                app.push_object(Object::TutorialTexture {
+                    id,
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
                 });
             }
             _ => {
@@ -146,8 +198,8 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
                     s,
                     "{} {} {} {} {}",
                     typ,
-                    rect.x - rect.w / 2.,
-                    rect.y - rect.h / 2.,
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.,
                     rect.w,
                     rect.h
                 )?;
@@ -164,23 +216,67 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
                 )?;
             }
             Object::Player { pos } => {
-                writeln!(s, "PLAYER {} {}", pos.x, pos.y)?;
+                writeln!(
+                    s,
+                    "PLAYER {} {}",
+                    pos.x + PLAYER_WIDTH / 2.,
+                    pos.y + PLAYER_HEIGHT / 2.
+                )?;
                 player += 1;
             }
             Object::Bird {
                 rect,
                 detection_range,
             } => {
-                writeln!(s, "BIRD {} {} {}", rect.x, rect.y, detection_range)?;
+                writeln!(
+                    s,
+                    "BIRD {} {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.,
+                    detection_range
+                )?;
             }
             Object::Heart { rect } => {
-                writeln!(s, "HEART {} {}", rect.x, rect.y)?;
+                writeln!(s, "HEART {} {}", rect.x + rect.w / 2., rect.y + rect.h / 2.)?;
             }
             Object::Banana { rect } => {
-                writeln!(s, "BANANA {} {}", rect.x, rect.y)?;
+                writeln!(
+                    s,
+                    "BANANA {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.
+                )?;
             }
             Object::Strawberry { rect } => {
-                writeln!(s, "STRAWBERRY {} {}", rect.x, rect.y)?;
+                writeln!(
+                    s,
+                    "STRAWBERRY {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.
+                )?;
+            }
+            Object::TutorialTexture { rect, id } => {
+                writeln!(
+                    s,
+                    "TUTORIAL_OBJ {id} {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.
+                )?;
+            }
+            Object::Checkpoint { rect } => {
+                writeln!(s, "CHECKPOINT {} {}", rect.x + rect.w / 2., rect.y)?;
+            }
+            Object::Wave {
+                rect,
+                detection_range,
+            } => {
+                writeln!(
+                    s,
+                    "WAVE {} {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.,
+                    detection_range
+                )?;
             }
         }
     }
@@ -226,6 +322,17 @@ enum Object {
     Strawberry {
         rect: Rect,
     },
+    Checkpoint {
+        rect: Rect,
+    },
+    Wave {
+        rect: Rect,
+        detection_range: f32,
+    },
+    TutorialTexture {
+        id: &'static str,
+        rect: Rect,
+    },
 }
 
 impl Object {
@@ -239,6 +346,12 @@ impl Object {
                 | (Object::Heart { .. }, Object::Heart { .. })
                 | (Object::Banana { .. }, Object::Banana { .. })
                 | (Object::Strawberry { .. }, Object::Strawberry { .. })
+                | (Object::Checkpoint { .. }, Object::Checkpoint { .. })
+                | (Object::Wave { .. }, Object::Wave { .. })
+                | (
+                    Object::TutorialTexture { .. },
+                    Object::TutorialTexture { .. }
+                )
         )
     }
     fn aabb(&self) -> Rect {
@@ -256,31 +369,12 @@ impl Object {
                     LASER_WIDTH,
                     LASER_WIDTH,
                 )
-                // let half_w = LASER_WIDTH / 2.;
-                // let half_h = LASER_HEIGHT / 2.;
-                // if pos.length_squared() == 0.0 {
-                //     return Rect::new(
-                //         pos.x - LASER_WIDTH / 2.0,
-                //         pos.y - LASER_HEIGHT / 2.0,
-                //         LASER_WIDTH,
-                //         LASER_HEIGHT,
-                //     );
-                // }
-                // let dir = (*rail_end - *rail_start).normalize();
-                // let perp = dir.perp();
-
-                // let e = (dir * half_h).abs() + (perp * half_w).abs();
-                // Rect::new(pos.x - e.x, pos.y - e.y, e.x * 2., e.y * 2.)
-
-                // let min = rail_start.min(*rail_end);
-                // let max = rail_start.max(*rail_end);
-                // let size = max - min;
-                // let pos = min + size;
-                // let rect = Rect::new(pos.x, pos.y, size.x, size.y);
-                // rect
             }
             Object::Player { pos } => Rect::new(pos.x, pos.y, PLAYER_WIDTH, PLAYER_HEIGHT),
-            Object::Bird { rect, .. }
+            Object::Checkpoint { rect }
+            | Object::Wave { rect, .. }
+            | Object::TutorialTexture { rect, .. }
+            | Object::Bird { rect, .. }
             | Object::Heart { rect }
             | Object::Banana { rect }
             | Object::Strawberry { rect } => *rect,
@@ -326,7 +420,10 @@ impl Object {
                 *rail_end += delta;
             }
             Object::Player { pos: p } => *p = pos,
-            Object::Bird { rect, .. }
+            Object::Checkpoint { rect }
+            | Object::Wave { rect, .. }
+            | Object::TutorialTexture { rect, .. }
+            | Object::Bird { rect, .. }
             | Object::Heart { rect }
             | Object::Banana { rect }
             | Object::Strawberry { rect } => {
@@ -355,7 +452,10 @@ impl Object {
                 p.x = pos.x - PLAYER_WIDTH / 2.;
                 p.y = pos.y - PLAYER_HEIGHT / 2.;
             }
-            Object::Bird { rect, .. }
+            Object::Checkpoint { rect }
+            | Object::Wave { rect, .. }
+            | Object::TutorialTexture { rect, .. }
+            | Object::Bird { rect, .. }
             | Object::Heart { rect }
             | Object::Banana { rect }
             | Object::Strawberry { rect } => {
@@ -370,7 +470,10 @@ impl Object {
                 rect.w = size.x;
                 rect.h = size.y;
             }
-            Object::Bird { .. }
+            Object::Checkpoint { .. }
+            | Object::Wave { .. }
+            | Object::TutorialTexture { .. }
+            | Object::Bird { .. }
             | Object::Heart { .. }
             | Object::Banana { .. }
             | Object::Strawberry { .. } => {
@@ -552,6 +655,47 @@ impl Object {
                     },
                 );
             }
+            Object::TutorialTexture { id, rect } => {
+                let tex = &textures.tutorial_textures[id];
+                draw_texture_ex(
+                    tex,
+                    rect.x,
+                    rect.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(rect.w, rect.h)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                );
+            }
+            Object::Checkpoint { rect } => {
+                draw_texture_ex(
+                    &textures.checkpoint,
+                    // rect.x + rect.w,
+                    rect.x,
+                    rect.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(rect.w, rect.h)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                );
+            }
+            Object::Wave {
+                rect,
+                detection_range,
+            } => {
+                let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                draw_circle(
+                    pos.x,
+                    pos.y,
+                    *detection_range,
+                    Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
+                );
+                draw_rectangle(rect.x, rect.y, rect.w, rect.h, BLACK);
+            }
         }
     }
 
@@ -568,6 +712,9 @@ struct Textures {
     strawberry: Texture2D,
     heart: Texture2D,
     player: Texture2D,
+    checkpoint: Texture2D,
+    wave: Texture2D,
+    tutorial_textures: HashMap<&'static str, Texture2D>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -712,6 +859,125 @@ impl App {
         let heart = load_texture("textures/heart-pink.png").await.unwrap();
         let laser = load_texture("textures/laser.png").await.unwrap();
         let player = load_texture("textures/player.png").await.unwrap();
+        let checkpoint = load_texture("textures/checkpoint.png").await.unwrap();
+        let wave = load_texture("textures/wave.png").await.unwrap();
+
+        let map = HashMap::from([
+            (
+                "checkpoint",
+                load_texture("textures/tutorial/tutorial-checkpoint.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "close_window",
+                load_texture("textures/tutorial/tutorial-close-window.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "bird",
+                load_texture("textures/tutorial/tutorial-bird.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "laser",
+                load_texture("textures/tutorial/tutorial-laser.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "wave",
+                load_texture("textures/tutorial/tutorial-wave.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "framerate",
+                load_texture("textures/tutorial/tutorial-framerate.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "fruits",
+                load_texture("textures/tutorial/tutorial-fruits.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "heart",
+                load_texture("textures/tutorial/tutorial-heart.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "jump",
+                load_texture("textures/tutorial/tutorial-jump.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "move",
+                load_texture("textures/tutorial/tutorial-move.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "reset",
+                load_texture("textures/tutorial/tutorial-reset.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "hot",
+                load_texture("textures/tutorial/tutorial-surface-hot.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "pink",
+                load_texture("textures/tutorial/tutorial-surface-pink.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "tar1",
+                load_texture("textures/tutorial/tutorial-surface-tar-1.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "tar2",
+                load_texture("textures/tutorial/tutorial-surface-tar-2.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "teleport",
+                load_texture("textures/tutorial/tutorial-teleport.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "walljump",
+                load_texture("textures/tutorial/tutorial-walljump.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "congrats",
+                load_texture("textures/tutorial/congratulations-screen.png")
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "portal",
+                load_texture("textures/tutorial/portal-purple.png")
+                    .await
+                    .unwrap(),
+            ),
+        ]);
 
         let textures = Textures {
             bird,
@@ -720,6 +986,9 @@ impl App {
             heart,
             laser,
             player,
+            tutorial_textures: map,
+            checkpoint,
+            wave,
         };
         Self {
             state: InteractionState::None,
@@ -1310,6 +1579,14 @@ impl App {
                 if mouse_down {
                     let object = self.objects.get_mut(id).unwrap();
                     match object {
+                        Object::Wave {
+                            rect,
+                            detection_range,
+                        } => {
+                            let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                            let diff = (pos - mouse_pos_world).length();
+                            *detection_range = diff;
+                        }
                         Object::Bird {
                             rect,
                             detection_range,
@@ -1318,7 +1595,9 @@ impl App {
                             let diff = (pos - mouse_pos_world).length();
                             *detection_range = diff;
                         }
-                        Object::Heart { .. }
+                        Object::Checkpoint { .. }
+                        | Object::TutorialTexture { .. }
+                        | Object::Heart { .. }
                         | Object::Banana { .. }
                         | Object::Strawberry { .. }
                         | Object::Rect { .. }
@@ -1558,6 +1837,19 @@ impl App {
                 &self.textures.strawberry,
                 Object::Strawberry {
                     rect: Rect::new(0., 0., 48., 48.),
+                },
+            ),
+            (
+                &self.textures.checkpoint,
+                Object::Checkpoint {
+                    rect: Rect::new(0.0, 0.0, 60., 60.),
+                },
+            ),
+            (
+                &self.textures.wave,
+                Object::Wave {
+                    rect: Rect::new(0.0, 0.0, 40., 40.),
+                    detection_range: 200.,
                 },
             ),
         ];
@@ -1869,6 +2161,22 @@ fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleKind>
                 return Some(HandleKind::DetectionRange);
             }
         }
+        Object::Wave {
+            rect,
+            detection_range,
+        } => {
+            if Circle::new(
+                rect.x + rect.w / 2.,
+                rect.y + rect.h / 2. + detection_range,
+                size,
+            )
+            .contains(&mouse)
+            {
+                return Some(HandleKind::DetectionRange);
+            }
+        }
+        Object::Checkpoint { .. } => {}
+        Object::TutorialTexture { .. } => {}
         Object::Player { .. } => {}
         Object::Heart { .. } => {}
         Object::Banana { .. } => {}
@@ -1937,10 +2245,24 @@ fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
             };
             draw_circle(x, y, size / CIRCLE_DIV, color);
         }
+        Object::Wave {
+            rect,
+            detection_range,
+        } => {
+            let (x, y) = (rect.x + rect.w / 2., rect.y + rect.h / 2. + detection_range);
+            let color = if Circle::new(x, y, size).contains(&mouse) {
+                RED
+            } else {
+                WHITE
+            };
+            draw_circle(x, y, size / CIRCLE_DIV, color);
+        }
+        Object::Checkpoint { .. } => {}
         Object::Player { .. } => {}
         Object::Heart { .. } => {}
         Object::Banana { .. } => {}
         Object::Strawberry { .. } => {}
+        Object::TutorialTexture { .. } => {}
     }
 }
 
