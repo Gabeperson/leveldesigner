@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const LASER_WIDTH: f32 = 40.;
@@ -14,6 +15,175 @@ const ITEM_HEIGHT: f32 = 50.;
 const CONTEXT_MENU_HEIGHT: f32 = 140.;
 const LASER_HANDLE_DIST: f32 = 20.;
 const CIRCLE_DIV: f32 = 2.0;
+
+fn parse(s: &str, app: &mut App) {
+    let file = match std::fs::read_to_string(s) {
+        Ok(f) => f,
+        Err(_e) => {
+            eprintln!("Failed to read file, falling back to empty file");
+            return;
+        }
+    };
+    for line in file.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let split = line.split(" ").collect::<Vec<_>>();
+        fn parse_float(s: &str) -> f32 {
+            s.parse().expect("Expected float")
+        }
+        match split[0] {
+            "REGULAR" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let w = parse_float(split[3]);
+                let h = parse_float(split[4]);
+                app.push_object(Object::Rect {
+                    rect: Rect::new(x, y, w, h),
+                    kind: RectKind::Regular,
+                });
+            }
+            "ANTI_TP" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let w = parse_float(split[3]);
+                let h = parse_float(split[4]);
+                app.push_object(Object::Rect {
+                    rect: Rect::new(x, y, w, h),
+                    kind: RectKind::AntiTp,
+                });
+            }
+            "TAR" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let w = parse_float(split[3]);
+                let h = parse_float(split[4]);
+                app.push_object(Object::Rect {
+                    rect: Rect::new(x, y, w, h),
+                    kind: RectKind::Tar,
+                });
+            }
+            "HOT" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let w = parse_float(split[3]);
+                let h = parse_float(split[4]);
+                app.push_object(Object::Rect {
+                    rect: Rect::new(x, y, w, h),
+                    kind: RectKind::Hot,
+                });
+            }
+            "LASER" => {
+                let x1 = parse_float(split[1]);
+                let y1 = parse_float(split[2]);
+                let x2 = parse_float(split[3]);
+                let y2 = parse_float(split[4]);
+                let rel = parse_float(split[5]);
+                app.push_object(Object::Laser {
+                    rail_start: Vec2::new(x1, y1),
+                    rail_end: Vec2::new(x2, y2),
+                    rel,
+                });
+            }
+            "PLAYER" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                app.push_object(Object::Player {
+                    pos: Vec2::new(x, y),
+                })
+            }
+            "BIRD" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let detrange = parse_float(split[3]);
+                app.push_object(Object::Bird {
+                    rect: Rect::new(x, y, 50., 50.),
+                    detection_range: detrange,
+                });
+            }
+            "HEART" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                app.push_object(Object::Heart {
+                    rect: Rect::new(x, y, 48., 48.),
+                });
+            }
+            "BANANA" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                app.push_object(Object::Banana {
+                    rect: Rect::new(x, y, 48., 48.),
+                });
+            }
+            "STRAWBERRY" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                app.push_object(Object::Strawberry {
+                    rect: Rect::new(x, y, 48., 48.),
+                });
+            }
+            _ => {
+                eprintln!("Invalid object found in level file: {}", split[0]);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn serialise(app: &App) -> Result<String, std::fmt::Error> {
+    let mut s = String::new();
+    for object in app.objects.values() {
+        match object {
+            Object::Rect { rect, kind } => {
+                let typ = match kind {
+                    RectKind::Regular => "REGULAR",
+                    RectKind::AntiTp => "ANTI_TP",
+                    RectKind::Tar => "TAR",
+                    RectKind::Hot => "HOT",
+                };
+                writeln!(
+                    s,
+                    "{} {} {} {} {}",
+                    typ,
+                    rect.x - rect.w / 2.,
+                    rect.y - rect.h / 2.,
+                    rect.w,
+                    rect.h
+                )?;
+            }
+            Object::Laser {
+                rail_start,
+                rail_end,
+                rel,
+            } => {
+                writeln!(
+                    s,
+                    "LASER {} {} {} {} {}",
+                    rail_start.x, rail_start.y, rail_end.x, rail_end.y, rel
+                )?;
+            }
+            Object::Player { pos } => {
+                writeln!(s, "PLAYER {} {}", pos.x, pos.y)?;
+            }
+            Object::Bird {
+                rect,
+                detection_range,
+            } => {
+                writeln!(s, "BIRD {} {} {}", rect.x, rect.y, detection_range)?;
+            }
+            Object::Heart { rect } => {
+                writeln!(s, "HEART {} {}", rect.x, rect.y)?;
+            }
+            Object::Banana { rect } => {
+                writeln!(s, "BANANA {} {}", rect.x, rect.y)?;
+            }
+            Object::Strawberry { rect } => {
+                writeln!(s, "STRAWBERRY {} {}", rect.x, rect.y)?;
+            }
+        }
+    }
+    Ok(s)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RectKind {
@@ -558,6 +728,12 @@ impl App {
             pan_start: Vec2::ZERO,
             textures,
         }
+    }
+
+    fn push_object(&mut self, object: Object) {
+        let id = new_id();
+        self.objects.insert(id, object);
+        self.ordering.push(id);
     }
 
     fn camera(&self) -> Camera2D {
@@ -1239,7 +1415,6 @@ impl App {
         }
 
         if let InteractionState::Selecting { start } = &self.state {
-            assert!(mouse_down);
             let x = start.x.min(mouse_pos_world.x);
             let y = start.y.min(mouse_pos_world.y);
             let w = (start.x - mouse_pos_world.x).abs();
@@ -1495,7 +1670,26 @@ impl App {
 
 #[macroquad::main("Level design")]
 async fn main() {
+    let mut args = std::env::args();
+    let _name = args.next().unwrap();
+    let Some(file_name) = args.next() else {
+        eprintln!("Error: must give filename to open!");
+        std::process::exit(1);
+    };
+    match std::fs::copy(&file_name, format!("{file_name}.backup")) {
+        Ok(_) => {
+            println!("Succesfully backed up file");
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to back up file: {e}")
+        }
+    }
+    if args.next().is_some() {
+        eprintln!("Error: Expected only 1 arg!");
+        std::process::exit(1);
+    }
     let mut app = App::new().await;
+    parse(&file_name, &mut app);
     loop {
         clear_background(LIGHTGRAY);
         let raw_mouse_pos = {
@@ -1525,6 +1719,17 @@ async fn main() {
         app.side_panel();
 
         app.context_menu();
+
+        if (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl))
+            && is_key_pressed(KeyCode::S)
+        {
+            let serialized = serialise(&app).expect("String formatting failed??");
+            if let Err(e) = std::fs::write(&file_name, serialized) {
+                eprintln!("Failed to save: {e}");
+            } else {
+                println!("Successfully saved to {file_name}");
+            }
+        }
 
         next_frame().await;
     }
