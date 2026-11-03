@@ -132,6 +132,7 @@ fn parse(s: &str, app: &mut App) {
 
 fn serialise(app: &App) -> Result<String, std::fmt::Error> {
     let mut s = String::new();
+    let mut player = 0;
     for object in app.objects.values() {
         match object {
             Object::Rect { rect, kind } => {
@@ -164,6 +165,7 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
             }
             Object::Player { pos } => {
                 writeln!(s, "PLAYER {} {}", pos.x, pos.y)?;
+                player += 1;
             }
             Object::Bird {
                 rect,
@@ -181,6 +183,10 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
                 writeln!(s, "STRAWBERRY {} {}", rect.x, rect.y)?;
             }
         }
+    }
+    if player != 1 {
+        eprintln!("Error: {} player objects found", player);
+        return Err(std::fmt::Error);
     }
     Ok(s)
 }
