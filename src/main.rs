@@ -3,6 +3,18 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+const LASER_WIDTH: f32 = 40.;
+const LASER_HEIGHT: f32 = 20.;
+const PLAYER_WIDTH: f32 = 48.;
+const PLAYER_HEIGHT: f32 = 96.;
+const HANDLE_SIZE: f32 = 10.0;
+const SIDEBAR_SIZE: f32 = 40.;
+const PATCH_SIZE: f32 = 30.;
+const ITEM_HEIGHT: f32 = 50.;
+const CONTEXT_MENU_HEIGHT: f32 = 140.;
+const LASER_HANDLE_DIST: f32 = 20.;
+const CIRCLE_DIV: f32 = 2.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RectKind {
     Regular,
@@ -13,24 +25,113 @@ enum RectKind {
 
 #[derive(Clone, Copy, Debug)]
 enum Object {
-    Rect { rect: Rect, kind: RectKind },
+    Rect {
+        rect: Rect,
+        kind: RectKind,
+    },
+    Laser {
+        rail_start: Vec2,
+        rail_end: Vec2,
+        rel: f32,
+    },
+    Player {
+        pos: Vec2,
+    },
+    Bird {
+        rect: Rect,
+        detection_range: f32,
+    },
+    Heart {
+        rect: Rect,
+    },
+    Banana {
+        rect: Rect,
+    },
+    Strawberry {
+        rect: Rect,
+    },
 }
 
 impl Object {
+    fn same_type(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Object::Rect { .. }, Object::Rect { .. })
+                | (Object::Laser { .. }, Object::Laser { .. })
+                | (Object::Player { .. }, Object::Player { .. })
+                | (Object::Bird { .. }, Object::Bird { .. })
+                | (Object::Heart { .. }, Object::Heart { .. })
+                | (Object::Banana { .. }, Object::Banana { .. })
+                | (Object::Strawberry { .. }, Object::Strawberry { .. })
+        )
+    }
     fn aabb(&self) -> Rect {
         match self {
             Object::Rect { rect, .. } => *rect,
+            Object::Laser {
+                rail_start,
+                rail_end,
+                rel,
+            } => {
+                let pos = rail_start.lerp(*rail_end, *rel);
+                Rect::new(
+                    pos.x - LASER_WIDTH / 2.,
+                    pos.y - LASER_WIDTH / 2.,
+                    LASER_WIDTH,
+                    LASER_WIDTH,
+                )
+                // let half_w = LASER_WIDTH / 2.;
+                // let half_h = LASER_HEIGHT / 2.;
+                // if pos.length_squared() == 0.0 {
+                //     return Rect::new(
+                //         pos.x - LASER_WIDTH / 2.0,
+                //         pos.y - LASER_HEIGHT / 2.0,
+                //         LASER_WIDTH,
+                //         LASER_HEIGHT,
+                //     );
+                // }
+                // let dir = (*rail_end - *rail_start).normalize();
+                // let perp = dir.perp();
+
+                // let e = (dir * half_h).abs() + (perp * half_w).abs();
+                // Rect::new(pos.x - e.x, pos.y - e.y, e.x * 2., e.y * 2.)
+
+                // let min = rail_start.min(*rail_end);
+                // let max = rail_start.max(*rail_end);
+                // let size = max - min;
+                // let pos = min + size;
+                // let rect = Rect::new(pos.x, pos.y, size.x, size.y);
+                // rect
+            }
+            Object::Player { pos } => Rect::new(pos.x, pos.y, PLAYER_WIDTH, PLAYER_HEIGHT),
+            Object::Bird { rect, .. }
+            | Object::Heart { rect }
+            | Object::Banana { rect }
+            | Object::Strawberry { rect } => *rect,
+        }
+    }
+    fn grect_aabb(&self) -> Rect {
+        if let Object::Laser {
+            rail_start,
+            rail_end,
+            ..
+        } = self
+        {
+            let min = rail_start.min(*rail_end);
+            let max = rail_start.max(*rail_end);
+            let size = max - min;
+            let pos = min;
+
+            Rect::new(pos.x, pos.y, size.x, size.y).combine_with(self.aabb())
+        } else {
+            self.aabb()
         }
     }
     fn contains(&self, pos: Vec2) -> bool {
-        match self {
-            Object::Rect { rect, .. } => rect.contains(pos),
-        }
+        self.aabb().contains(pos)
     }
     fn pos(&self) -> Vec2 {
-        match self {
-            Object::Rect { rect, .. } => Vec2::new(rect.x, rect.y),
-        }
+        self.aabb().point()
     }
     fn set_pos(&mut self, pos: Vec2) {
         match self {
@@ -38,11 +139,53 @@ impl Object {
                 rect.x = pos.x;
                 rect.y = pos.y;
             }
+            Object::Laser {
+                rail_start,
+                rail_end,
+                rel,
+            } => {
+                let old_pos = rail_start.lerp(*rail_end, *rel) - LASER_WIDTH / 2.;
+                let delta = pos - old_pos;
+                *rail_start += delta;
+                *rail_end += delta;
+            }
+            Object::Player { pos: p } => *p = pos,
+            Object::Bird { rect, .. }
+            | Object::Heart { rect }
+            | Object::Banana { rect }
+            | Object::Strawberry { rect } => {
+                rect.x = pos.x;
+                rect.y = pos.y;
+            }
         }
     }
-    fn size(&self) -> Vec2 {
+    fn set_pos_centered(&mut self, pos: Vec2) {
         match self {
-            Object::Rect { rect, .. } => Vec2::new(rect.w, rect.h),
+            Object::Rect { rect, .. } => {
+                rect.x = pos.x - rect.w / 2.;
+                rect.y = pos.y - rect.h / 2.;
+            }
+            Object::Laser {
+                rail_start,
+                rail_end,
+                rel,
+            } => {
+                let old_pos = rail_start.lerp(*rail_end, *rel) - LASER_WIDTH / 2.;
+                let delta = pos - old_pos;
+                *rail_start += delta;
+                *rail_end += delta;
+            }
+            Object::Player { pos: p } => {
+                p.x = pos.x - PLAYER_WIDTH / 2.;
+                p.y = pos.y - PLAYER_HEIGHT / 2.;
+            }
+            Object::Bird { rect, .. }
+            | Object::Heart { rect }
+            | Object::Banana { rect }
+            | Object::Strawberry { rect } => {
+                rect.x = pos.x - rect.w / 2.;
+                rect.y = pos.y - rect.h / 2.;
+            }
         }
     }
     fn set_size(&mut self, size: Vec2) {
@@ -51,34 +194,42 @@ impl Object {
                 rect.w = size.x;
                 rect.h = size.y;
             }
+            Object::Bird { .. }
+            | Object::Heart { .. }
+            | Object::Banana { .. }
+            | Object::Strawberry { .. } => {
+                // rect.w = size.x;
+                // rect.h = size.y;
+            }
+            Object::Player { .. } | Object::Laser { .. } => {}
         }
     }
     fn overlaps_rect(&self, rect: Rect) -> bool {
-        match self {
-            Object::Rect {
-                rect: self_rect, ..
-            } => self_rect.overlaps(&rect),
-        }
+        self.aabb().overlaps(&rect)
     }
-    fn draw(&self) {
+    fn draw(&self, textures: &Textures) {
+        self.draw_with_alpha(textures, 1.0);
+    }
+    fn draw_with_alpha(&self, textures: &Textures, alpha: f32) {
+        let alpha_u8 = (alpha * 255.) as u8;
         match self {
             Object::Rect { rect, kind } => {
                 let (fill, outline) = match kind {
                     RectKind::Regular => (
-                        Color::from_rgba(165, 216, 255, 255),
-                        Color::new(0.5, 0.5, 0.5, 1.),
+                        Color::from_rgba(165, 216, 255, alpha_u8),
+                        Color::new(0.5, 0.5, 0.5, alpha),
                     ),
                     RectKind::AntiTp => (
-                        Color::new(1., 0.35, 0.9, 1.),
-                        Color::new(0.65, 0.2, 0.5, 1.0),
+                        Color::new(1., 0.35, 0.9, alpha),
+                        Color::new(0.65, 0.2, 0.5, alpha),
                     ),
                     RectKind::Tar => (
-                        Color::new(0.1, 0.1, 0.1, 1.0),
-                        Color::new(0.5, 0.5, 0.5, 1.0),
+                        Color::new(0.1, 0.1, 0.1, alpha),
+                        Color::new(0.5, 0.5, 0.5, alpha),
                     ),
                     RectKind::Hot => (
-                        Color::new(1.0, 0.8, 0.15, 1.0),
-                        Color::new(1.0, 0.7, 0.15, 1.0),
+                        Color::new(1.0, 0.8, 0.15, alpha),
+                        Color::new(1.0, 0.7, 0.15, alpha),
                     ),
                 };
                 draw_rectangle_ex(
@@ -103,14 +254,144 @@ impl Object {
                     },
                 );
             }
+            Object::Laser {
+                rail_start,
+                rail_end,
+                rel,
+            } => {
+                draw_line(
+                    rail_start.x,
+                    rail_start.y,
+                    rail_end.x,
+                    rail_end.y,
+                    2.,
+                    Color::from_rgba(15, 25, 40, alpha_u8),
+                );
+                let dir = *rail_end - *rail_start;
+                let rot = dir.y.atan2(dir.x);
+                let pos = rail_start.lerp(*rail_end, *rel);
+                let perp = -dir.perp().normalize_or_zero();
+                let len = 200.;
+                let end = pos + perp * len;
+                draw_line(pos.x, pos.y, end.x, end.y, 5., RED.with_alpha(alpha));
+                draw_rectangle_ex(
+                    pos.x,
+                    pos.y,
+                    LASER_WIDTH,
+                    LASER_HEIGHT,
+                    DrawRectangleParams {
+                        offset: Vec2::new(0.5, 0.5),
+                        rotation: rot,
+                        color: BLACK.with_alpha(alpha),
+                    },
+                );
+            }
+            Object::Player { pos } => {
+                // let x = pos.x;
+                // let y = pos.y;
+                // let w = PLAYER_WIDTH;
+                // let h = PLAYER_HEIGHT;
+
+                // draw_rectangle(x, y, w, h, BLUE.with_alpha(alpha));
+
+                // let eye = Vec2::splat(6.0);
+
+                // let y = y + h * 0.25;
+                // let lx = x + w * 0.25 - eye.x * 0.5;
+                // let rx = x + w * 0.75 - eye.x * 0.5;
+
+                // draw_rectangle(lx, y, eye.x, eye.y, WHITE.with_alpha(alpha));
+                // draw_rectangle(rx, y, eye.x, eye.y, WHITE.with_alpha(alpha));
+                draw_texture_ex(
+                    &textures.player,
+                    pos.x,
+                    pos.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(PLAYER_WIDTH, PLAYER_HEIGHT)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                )
+            }
+            Object::Bird {
+                rect,
+                detection_range,
+            } => {
+                let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                draw_circle(
+                    pos.x,
+                    pos.y,
+                    *detection_range,
+                    Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
+                );
+                draw_texture_ex(
+                    &textures.bird,
+                    rect.x,
+                    rect.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(rect.w, rect.h)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                );
+            }
+            Object::Heart { rect } => {
+                draw_texture_ex(
+                    &textures.heart,
+                    rect.x,
+                    rect.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(rect.w, rect.h)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                );
+            }
+            Object::Banana { rect } => {
+                draw_texture_ex(
+                    &textures.banana,
+                    rect.x,
+                    rect.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(rect.w, rect.h)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                );
+            }
+            Object::Strawberry { rect } => {
+                draw_texture_ex(
+                    &textures.strawberry,
+                    rect.x,
+                    rect.y,
+                    WHITE.with_alpha(alpha),
+                    DrawTextureParams {
+                        dest_size: Some(Vec2::new(rect.w, rect.h)),
+                        flip_y: true,
+                        ..Default::default()
+                    },
+                );
+            }
         }
     }
 
     fn context_menu_target(&self, id: u32) -> ContextMenuTarget {
-        match self {
-            Object::Rect { .. } => ContextMenuTarget::SingleObject { id },
-        }
+        ContextMenuTarget::SingleObject { id }
     }
+}
+
+#[derive(Debug, Clone)]
+struct Textures {
+    bird: Texture2D,
+    laser: Texture2D,
+    banana: Texture2D,
+    strawberry: Texture2D,
+    heart: Texture2D,
+    player: Texture2D,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -123,6 +404,10 @@ enum HandleKind {
     BottomMiddle,
     BottomLeft,
     LeftMiddle,
+    RailStart,
+    RailEnd,
+    MoveLaserBase,
+    DetectionRange,
 }
 
 #[derive(Debug, Clone)]
@@ -131,13 +416,25 @@ enum InteractionState {
     Selecting {
         start: Vec2,
     },
-    Selected {
+    BeforeMoving {
         initial_positions: RefCell<HashMap<u32, Vec2>>,
         mouse_start: Vec2,
     },
     Moving {
         initial_positions: HashMap<u32, Vec2>,
         mouse_start: Vec2,
+    },
+    MovingRailStart {
+        id: u32,
+    },
+    MovingRailEnd {
+        id: u32,
+    },
+    MoveLaserBase {
+        id: u32,
+    },
+    DetectionRange {
+        id: u32,
     },
     Resizing {
         handle: HandleKind,
@@ -152,13 +449,10 @@ enum InteractionState {
         kind: RectKind,
         start: Vec2,
     },
+    AddingObject {
+        object: Object,
+    },
 }
-
-const HANDLE_SIZE: f32 = 10.0;
-const SIDEBAR_SIZE: f32 = 30.;
-const PATCH_SIZE: f32 = 20.;
-const ITEM_HEIGHT: f32 = 50.;
-const CONTEXT_MENU_HEIGHT: f32 = 140.;
 
 fn new_id() -> u32 {
     static ID: AtomicU32 = AtomicU32::new(1);
@@ -229,10 +523,28 @@ struct App {
     camera_zoom: f32,
     camera_pos: Vec2,
     pan_start: Vec2,
+    textures: Textures,
 }
 
 impl App {
-    fn new() -> Self {
+    async fn new() -> Self {
+        let bird = load_texture("textures/bird.png").await.unwrap();
+        let banana = load_texture("textures/bananas-pink.png").await.unwrap();
+        let strawberry = load_texture("textures/strawberry-orange.png")
+            .await
+            .unwrap();
+        let heart = load_texture("textures/heart-pink.png").await.unwrap();
+        let laser = load_texture("textures/laser.png").await.unwrap();
+        let player = load_texture("textures/player.png").await.unwrap();
+
+        let textures = Textures {
+            bird,
+            banana,
+            strawberry,
+            heart,
+            laser,
+            player,
+        };
         Self {
             state: InteractionState::None,
             ordering: Vec::new(),
@@ -244,6 +556,7 @@ impl App {
             camera_zoom: 1.,
             camera_pos: Vec2::ZERO,
             pan_start: Vec2::ZERO,
+            textures,
         }
     }
 
@@ -454,8 +767,9 @@ impl App {
         let mouse_right_pressed = is_mouse_button_pressed(MouseButton::Right);
         let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
         let delete = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace);
+        let escape = is_key_pressed(KeyCode::Escape);
         let group_rect = get_group_rect(&self.objects, &self.selected_ids);
-        match &self.state {
+        match &mut self.state {
             InteractionState::None => {
                 if delete {
                     Self::push_snapshot(
@@ -472,24 +786,27 @@ impl App {
                     self.selected_ids.clear();
                 } else if mouse_pressed {
                     let mut clicked_handle = None;
-                    if !self.selected_ids.is_empty()
-                        && let Some(g_rect) = group_rect
-                    {
-                        clicked_handle = get_active_handle(
-                            g_rect,
-                            mouse_pos_world,
-                            HANDLE_SIZE / self.camera_zoom,
-                        );
-                    }
-
-                    if let Some(handle) = clicked_handle {
-                        let g_rect = group_rect.unwrap();
-                        let mut initial_object_rects = HashMap::new();
-                        for &id in &self.selected_ids {
-                            if let Some(obj) = self.objects.get(&id) {
-                                initial_object_rects.insert(id, obj.aabb());
-                            }
+                    match self.selected_ids.len() {
+                        0 => {}
+                        1 => {
+                            let id = self.selected_ids.iter().next().unwrap();
+                            let object = &self.objects[id];
+                            clicked_handle = get_active_handle(
+                                object,
+                                mouse_pos_world,
+                                HANDLE_SIZE / self.camera_zoom,
+                            );
                         }
+                        _ => {
+                            let g_rect = group_rect.unwrap();
+                            clicked_handle = get_active_handle_group(
+                                g_rect,
+                                mouse_pos_world,
+                                HANDLE_SIZE / self.camera_zoom,
+                            );
+                        }
+                    }
+                    if let Some(handle) = clicked_handle {
                         Self::push_snapshot(
                             &self.ordering,
                             &self.objects,
@@ -497,12 +814,43 @@ impl App {
                             &mut self.undo_snapshots,
                             &mut self.redo_snapshots,
                         );
-                        self.state = InteractionState::Resizing {
-                            handle,
-                            initial_group_rect: g_rect,
-                            initial_object_rects,
-                            mouse_start: mouse_pos_world,
-                        };
+                        let id = *self.selected_ids.iter().next().unwrap();
+                        match handle {
+                            HandleKind::TopLeft
+                            | HandleKind::TopMiddle
+                            | HandleKind::TopRight
+                            | HandleKind::RightMiddle
+                            | HandleKind::BottomRight
+                            | HandleKind::BottomMiddle
+                            | HandleKind::BottomLeft
+                            | HandleKind::LeftMiddle => {
+                                let g_rect = group_rect.unwrap();
+                                let mut initial_object_rects = HashMap::new();
+                                for &id in &self.selected_ids {
+                                    if let Some(obj) = self.objects.get(&id) {
+                                        initial_object_rects.insert(id, obj.aabb());
+                                    }
+                                }
+                                self.state = InteractionState::Resizing {
+                                    handle,
+                                    initial_group_rect: g_rect,
+                                    initial_object_rects,
+                                    mouse_start: mouse_pos_world,
+                                };
+                            }
+                            HandleKind::RailStart => {
+                                self.state = InteractionState::MovingRailStart { id }
+                            }
+                            HandleKind::RailEnd => {
+                                self.state = InteractionState::MovingRailEnd { id }
+                            }
+                            HandleKind::MoveLaserBase => {
+                                self.state = InteractionState::MoveLaserBase { id }
+                            }
+                            HandleKind::DetectionRange => {
+                                self.state = InteractionState::DetectionRange { id }
+                            }
+                        }
                     } else {
                         let mut clicked_id = None;
                         for id in self.ordering.iter().rev() {
@@ -533,7 +881,7 @@ impl App {
                                     initial_positions.insert(sel_id, obj.pos());
                                 }
                             }
-                            self.state = InteractionState::Selected {
+                            self.state = InteractionState::BeforeMoving {
                                 initial_positions: RefCell::new(initial_positions),
                                 mouse_start: mouse_pos_world,
                             };
@@ -592,7 +940,7 @@ impl App {
                     self.state = InteractionState::None;
                 }
             }
-            InteractionState::Selected {
+            InteractionState::BeforeMoving {
                 initial_positions,
                 mouse_start,
             } => {
@@ -627,7 +975,7 @@ impl App {
             } => {
                 if mouse_down {
                     let delta = mouse_pos_world - *mouse_start;
-                    for (&id, &init_pos) in initial_positions {
+                    for (&id, &mut init_pos) in initial_positions {
                         if let Some(obj) = self.objects.get_mut(&id) {
                             obj.set_pos(init_pos + delta);
                         }
@@ -714,8 +1062,105 @@ impl App {
                     self.state = InteractionState::None;
                 } else {
                     if show {
-                        Object::Rect { rect, kind: *kind }.draw();
+                        Object::Rect { rect, kind: *kind }.draw(&self.textures);
                     }
+                }
+            }
+            InteractionState::MovingRailStart { id } => {
+                if mouse_down {
+                    let object = self.objects.get_mut(id).unwrap();
+                    let Object::Laser {
+                        rail_start,
+                        rail_end,
+                        ..
+                    } = object
+                    else {
+                        unreachable!();
+                    };
+                    *rail_start = mouse_pos_world;
+                    if (*rail_end - *rail_start).length() < 20. {
+                        *rail_start = (mouse_pos_world - *rail_end).normalize_or(Vec2::ONE) * 20.;
+                    }
+                } else {
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::MovingRailEnd { id } => {
+                if mouse_down {
+                    let object = self.objects.get_mut(id).unwrap();
+                    let Object::Laser {
+                        rail_start,
+                        rail_end,
+                        ..
+                    } = object
+                    else {
+                        unreachable!();
+                    };
+                    *rail_end = mouse_pos_world;
+                    if (*rail_end - *rail_start).length() < 20. {
+                        *rail_end = (mouse_pos_world - *rail_start).normalize_or(Vec2::ONE) * 20.;
+                    }
+                } else {
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::MoveLaserBase { id } => {
+                if mouse_down {
+                    let object = self.objects.get_mut(id).unwrap();
+                    let Object::Laser {
+                        rail_start,
+                        rail_end,
+                        rel,
+                    } = object
+                    else {
+                        unreachable!();
+                    };
+                    let rail = *rail_end - *rail_start;
+                    let mouse = mouse_pos_world - *rail_start;
+                    let sqlen = rail.length_squared();
+                    let p = (rail.dot(mouse) / sqlen).clamp(0.0, 1.0);
+                    *rel = p;
+                } else {
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::DetectionRange { id } => {
+                if mouse_down {
+                    let object = self.objects.get_mut(id).unwrap();
+                    match object {
+                        Object::Bird {
+                            rect,
+                            detection_range,
+                        } => {
+                            let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                            let diff = (pos - mouse_pos_world).length();
+                            *detection_range = diff;
+                        }
+                        Object::Heart { .. }
+                        | Object::Banana { .. }
+                        | Object::Strawberry { .. }
+                        | Object::Rect { .. }
+                        | Object::Laser { .. }
+                        | Object::Player { .. } => {
+                            self.state = InteractionState::None;
+                        }
+                    }
+                } else {
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::AddingObject { object } => {
+                object.set_pos_centered(mouse_pos_world);
+                object.draw_with_alpha(&self.textures, 0.3);
+                if escape || mouse_right_pressed {
+                    self.state = InteractionState::None;
+                } else if mouse_pressed {
+                    let id = new_id();
+                    self.objects.insert(id, *object);
+                    self.ordering.push(id);
+                    self.selected_ids.clear();
+                    self.selected_ids.insert(id);
+                    self.state = InteractionState::None;
                 }
             }
         }
@@ -735,7 +1180,7 @@ impl App {
 
         for id in &self.ordering {
             let obj = &self.objects[id];
-            obj.draw();
+            obj.draw(&self.textures);
         }
 
         if let InteractionState::AddingRectDragging { kind, start } = &self.state {
@@ -749,7 +1194,7 @@ impl App {
             let show = rect.w > 2.0 && rect.h > 2.0;
 
             if mouse_down && show {
-                Object::Rect { rect, kind: *kind }.draw();
+                Object::Rect { rect, kind: *kind }.draw(&self.textures);
             }
         }
 
@@ -761,29 +1206,35 @@ impl App {
                 g_rect.h,
                 2.0 / self.camera_zoom,
                 DrawRectangleParams {
-                    color: DARKGRAY,
+                    color: Color::from_rgba(100, 50, 255, 255),
                     ..Default::default()
                 },
             );
 
-            for (_handle, rect) in get_handle_rects(g_rect, HANDLE_SIZE / self.camera_zoom) {
-                let color = if on_handle(rect, mouse_pos_world) {
-                    RED
-                } else {
-                    WHITE
-                };
-                draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
-                draw_rectangle_lines_ex(
-                    rect.x,
-                    rect.y,
-                    rect.w,
-                    rect.h,
-                    1. / self.camera_zoom,
-                    DrawRectangleParams {
-                        color: BLACK,
-                        ..Default::default()
-                    },
-                );
+            if self.selected_ids.len() == 1 {
+                let id = self.selected_ids.iter().next().unwrap();
+                let object = &self.objects[id];
+                draw_handles(object, mouse_pos_world, HANDLE_SIZE, self.camera_zoom);
+            } else {
+                for (_handle, rect) in get_handle_rects(g_rect, HANDLE_SIZE / self.camera_zoom) {
+                    let color = if on_handle(rect, mouse_pos_world) {
+                        RED
+                    } else {
+                        WHITE
+                    };
+                    draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
+                    draw_rectangle_lines_ex(
+                        rect.x,
+                        rect.y,
+                        rect.w,
+                        rect.h,
+                        1. / self.camera_zoom,
+                        DrawRectangleParams {
+                            color: BLACK,
+                            ..Default::default()
+                        },
+                    );
+                }
             }
         }
 
@@ -828,17 +1279,6 @@ impl App {
     }
 
     fn side_panel(&mut self) {
-        let num = if is_key_pressed(KeyCode::Key1) {
-            Some(0)
-        } else if is_key_pressed(KeyCode::Key2) {
-            Some(1)
-        } else if is_key_pressed(KeyCode::Key3) {
-            Some(2)
-        } else if is_key_pressed(KeyCode::Key4) {
-            Some(3)
-        } else {
-            None
-        };
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
         let raw_mouse_pos = {
             let pos = mouse_position();
@@ -850,18 +1290,6 @@ impl App {
             (RectKind::Tar, Color::new(0.1, 0.1, 0.1, 1.0)),
             (RectKind::Hot, Color::new(1.0, 0.8, 0.15, 1.0)),
         ];
-
-        if let Some(num) = num {
-            if let InteractionState::AddingRectSelected { kind } = &self.state {
-                if buttons[num].0 == *kind {
-                    self.state = InteractionState::None;
-                }
-            } else {
-                self.state = InteractionState::AddingRectSelected {
-                    kind: buttons[num].0,
-                }
-            }
-        }
 
         let mut start = 0.;
         draw_rectangle(0., 0., SIDEBAR_SIZE, screen_height(), WHITE);
@@ -900,6 +1328,95 @@ impl App {
 
             if mouse_pressed && outer_rect.contains(raw_mouse_pos) {
                 self.state = InteractionState::AddingRectSelected { kind };
+            }
+        }
+        /*
+            Object::Rect { .. } => 0,
+            Object::Laser { .. } => 1,
+            Object::Player { ..} => 2,
+            Object::Bird { ..} => 3,
+            Object::Heart { ..} => 4,
+            Object::Banana { .. } => 5,
+            Object::Strawberry { ..} => 6,
+        */
+        let add_items = [
+            (
+                &self.textures.laser,
+                Object::Laser {
+                    rail_start: Vec2::new(-100., 0.),
+                    rail_end: Vec2::new(100., 0.),
+                    rel: 0.5,
+                },
+            ),
+            (
+                &self.textures.player,
+                Object::Player {
+                    pos: Vec2::splat(0.0),
+                },
+            ),
+            (
+                &self.textures.bird,
+                Object::Bird {
+                    rect: Rect::new(0., 0., 50., 50.),
+                    detection_range: 200.,
+                },
+            ),
+            (
+                &self.textures.heart,
+                Object::Heart {
+                    rect: Rect::new(0., 0., 48., 48.),
+                },
+            ),
+            (
+                &self.textures.banana,
+                Object::Banana {
+                    rect: Rect::new(0., 0., 48., 48.),
+                },
+            ),
+            (
+                &self.textures.strawberry,
+                Object::Strawberry {
+                    rect: Rect::new(0., 0., 48., 48.),
+                },
+            ),
+        ];
+        for (texture, object) in add_items {
+            let rect = Rect::new(
+                (SIDEBAR_SIZE - PATCH_SIZE) / 2.,
+                start + PATCH_SIZE / 2.,
+                PATCH_SIZE,
+                PATCH_SIZE,
+            );
+            let outer_rect = Rect::new(0., start, SIDEBAR_SIZE, SIDEBAR_SIZE);
+            start += SIDEBAR_SIZE;
+            draw_texture_ex(
+                texture,
+                rect.x,
+                rect.y,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(Vec2::new(rect.w, rect.h)),
+                    ..Default::default()
+                },
+            );
+            if let InteractionState::AddingObject { object: adding_obj } = &self.state
+                && adding_obj.same_type(&object)
+            {
+                draw_rectangle_lines_ex(
+                    rect.x - 2.,
+                    rect.y - 2.,
+                    rect.w + 4.,
+                    rect.h + 4.,
+                    3.,
+                    DrawRectangleParams {
+                        color: GRAY,
+                        ..Default::default()
+                    },
+                )
+            }
+
+            if mouse_pressed && outer_rect.contains(raw_mouse_pos) {
+                self.state = InteractionState::AddingObject { object };
             }
         }
     }
@@ -978,7 +1495,7 @@ impl App {
 
 #[macroquad::main("Level design")]
 async fn main() {
-    let mut app = App::new();
+    let mut app = App::new().await;
     loop {
         clear_background(LIGHTGRAY);
         let raw_mouse_pos = {
@@ -1037,8 +1554,9 @@ fn get_group_rect(objects: &HashMap<u32, Object>, selected_ids: &HashSet<u32>) -
 
     for id in selected_ids {
         if let Some(obj) = objects.get(id) {
-            let size = obj.size();
-            let pos = obj.pos();
+            let rect = obj.grect_aabb();
+            let size = Vec2::new(rect.w, rect.h);
+            let pos = Vec2::new(rect.x, rect.y);
             min_x = min_x.min(pos.x);
             min_y = min_y.min(pos.y);
             max_x = max_x.max(pos.x + size.x);
@@ -1090,13 +1608,129 @@ fn get_handle_rects(r: Rect, size: f32) -> [(HandleKind, Rect); 8] {
     ]
 }
 
-fn get_active_handle(r: Rect, mouse: Vec2, size: f32) -> Option<HandleKind> {
+fn get_active_handle_group(r: Rect, mouse: Vec2, size: f32) -> Option<HandleKind> {
     for (handle, rect) in get_handle_rects(r, size) {
         if on_handle(rect, mouse) {
             return Some(handle);
         }
     }
     None
+}
+
+fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleKind> {
+    match obj {
+        Object::Rect { rect, .. } => {
+            for (handle, rect) in get_handle_rects(*rect, size) {
+                if on_handle(rect, mouse) {
+                    return Some(handle);
+                }
+            }
+        }
+        Object::Laser {
+            rail_start,
+            rail_end,
+            rel,
+        } => {
+            if Circle::new(rail_start.x, rail_start.y, size).contains(&mouse) {
+                return Some(HandleKind::RailStart);
+            } else if Circle::new(rail_end.x, rail_end.y, size).contains(&mouse) {
+                return Some(HandleKind::RailEnd);
+            }
+            let pos = rail_start.lerp(*rail_end, *rel);
+            let dir = *rail_end - *rail_start;
+            let perp = dir.perp().normalize_or_zero();
+            let loc = pos + perp * LASER_HANDLE_DIST;
+            if Circle::new(loc.x, loc.y, size).contains(&mouse) {
+                return Some(HandleKind::MoveLaserBase);
+            }
+        }
+        Object::Bird {
+            rect,
+            detection_range,
+        } => {
+            if Circle::new(
+                rect.x + rect.w / 2.,
+                rect.y + rect.h / 2. + detection_range,
+                size,
+            )
+            .contains(&mouse)
+            {
+                return Some(HandleKind::DetectionRange);
+            }
+        }
+        Object::Player { .. } => {}
+        Object::Heart { .. } => {}
+        Object::Banana { .. } => {}
+        Object::Strawberry { .. } => {}
+    }
+    None
+}
+
+fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
+    let weight = 1.0 / zoom;
+    match obj {
+        Object::Rect { rect, .. } => {
+            for (_handle, rect) in get_handle_rects(*rect, size) {
+                let color = if on_handle(rect, mouse) { RED } else { WHITE };
+                draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
+                draw_rectangle_lines_ex(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    weight,
+                    DrawRectangleParams {
+                        color: BLACK,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+        Object::Laser {
+            rail_start,
+            rail_end,
+            rel,
+        } => {
+            let color1 = if Circle::new(rail_start.x, rail_start.y, size).contains(&mouse) {
+                RED
+            } else {
+                WHITE
+            };
+            draw_circle(rail_start.x, rail_start.y, size / CIRCLE_DIV, color1);
+            let color2 = if Circle::new(rail_end.x, rail_end.y, size).contains(&mouse) {
+                RED
+            } else {
+                WHITE
+            };
+            draw_circle(rail_end.x, rail_end.y, size / CIRCLE_DIV, color2);
+            let pos = rail_start.lerp(*rail_end, *rel);
+            let dir = *rail_end - *rail_start;
+            let perp = dir.perp().normalize_or_zero();
+            let loc = pos + perp * LASER_HANDLE_DIST;
+            let color2 = if Circle::new(loc.x, loc.y, size).contains(&mouse) {
+                RED
+            } else {
+                WHITE
+            };
+            draw_circle(loc.x, loc.y, size / CIRCLE_DIV, color2);
+        }
+        Object::Bird {
+            rect,
+            detection_range,
+        } => {
+            let (x, y) = (rect.x + rect.w / 2., rect.y + rect.h / 2. + detection_range);
+            let color = if Circle::new(x, y, size).contains(&mouse) {
+                RED
+            } else {
+                WHITE
+            };
+            draw_circle(x, y, size / CIRCLE_DIV, color);
+        }
+        Object::Player { .. } => {}
+        Object::Heart { .. } => {}
+        Object::Banana { .. } => {}
+        Object::Strawberry { .. } => {}
+    }
 }
 
 fn resized(start: Rect, handle_kind: HandleKind, delta: Vec2) -> Rect {
@@ -1142,6 +1776,7 @@ fn resized(start: Rect, handle_kind: HandleKind, delta: Vec2) -> Rect {
             x += delta.x;
             w -= delta.x;
         }
+        _ => unreachable!(),
     }
 
     if w < min_size {
