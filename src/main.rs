@@ -157,6 +157,8 @@ enum InteractionState {
 const HANDLE_SIZE: f32 = 10.0;
 const SIDEBAR_SIZE: f32 = 30.;
 const PATCH_SIZE: f32 = 20.;
+const ITEM_HEIGHT: f32 = 50.;
+const CONTEXT_MENU_HEIGHT: f32 = 140.;
 
 fn new_id() -> u32 {
     static ID: AtomicU32 = AtomicU32::new(1);
@@ -908,8 +910,8 @@ impl App {
         };
 
         let items = target.options();
-        const ITEM_HEIGHT: f32 = 50.;
-        let contextmenu_size: Vec2 = Vec2::new(140., ITEM_HEIGHT * items.len() as f32);
+        let contextmenu_size: Vec2 =
+            Vec2::new(CONTEXT_MENU_HEIGHT, ITEM_HEIGHT * items.len() as f32);
         let menu = Rect::new(pos.x, pos.y, contextmenu_size.x, contextmenu_size.y);
         let mouse_pressed = is_mouse_button_pressed(MouseButton::Left);
         let esc_pressed = is_key_pressed(KeyCode::Escape);
@@ -984,11 +986,22 @@ async fn main() {
             Vec2::new(pos.0, pos.1)
         };
         let in_sidebar = raw_mouse_pos.x <= SIDEBAR_SIZE;
+        let in_menu = if let Some(ContextMenu { pos, target }) = &app.context_menu {
+            let rect = Rect::new(
+                pos.x,
+                pos.y,
+                CONTEXT_MENU_HEIGHT,
+                target.options().len() as f32 * ITEM_HEIGHT,
+            );
+            rect.contains(raw_mouse_pos)
+        } else {
+            false
+        };
 
         app.camera_zoom();
         app.camera_pan();
         app.undo_redo();
-        if !in_sidebar {
+        if !in_sidebar && !in_menu {
             app.state_update();
         }
         app.render();
