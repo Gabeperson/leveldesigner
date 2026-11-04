@@ -1675,7 +1675,12 @@ impl App {
             if self.selected_ids.len() == 1 {
                 let id = self.selected_ids.iter().next().unwrap();
                 let object = &self.objects[id];
-                draw_handles(object, mouse_pos_world, HANDLE_SIZE, self.camera_zoom);
+                draw_handles(
+                    object,
+                    mouse_pos_world,
+                    HANDLE_SIZE / self.camera_zoom,
+                    self.camera_zoom,
+                );
             } else {
                 for (_handle, rect) in get_handle_rects(g_rect, HANDLE_SIZE / self.camera_zoom) {
                     let color = if on_handle(rect, mouse_pos_world) {
