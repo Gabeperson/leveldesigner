@@ -136,10 +136,14 @@ fn parse(s: &str, app: &mut App) {
             "WAVE" => {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
-                let detrange = parse_float(split[3]);
+                let radius = parse_float(split[3]);
+                let angle = parse_float(split[4]);
+                let width = parse_float(split[5]);
                 app.push_object(Object::Wave {
                     rect: Rect::new(x - 40. / 2., y - 40. / 2., 40., 40.),
-                    detection_range: detrange,
+                    radius,
+                    angle,
+                    width,
                 });
             }
             "TUTORIAL_OBJ" => {
@@ -268,14 +272,18 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
             }
             Object::Wave {
                 rect,
-                detection_range,
+                radius,
+                angle,
+                width,
             } => {
                 writeln!(
                     s,
-                    "WAVE {} {} {}",
+                    "WAVE {} {} {} {} {}",
                     rect.x + rect.w / 2.,
                     rect.y + rect.h / 2.,
-                    detection_range
+                    radius,
+                    angle,
+                    width,
                 )?;
             }
         }
@@ -327,8 +335,11 @@ enum Object {
     },
     Wave {
         rect: Rect,
-        detection_range: f32,
+        radius: f32,
+        angle: f32,
+        width: f32,
     },
+
     TutorialTexture {
         id: &'static str,
         rect: Rect,
@@ -685,13 +696,22 @@ impl Object {
             }
             Object::Wave {
                 rect,
-                detection_range,
+                radius,
+                angle,
+                width,
             } => {
                 let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
-                draw_circle(
-                    pos.x,
-                    pos.y,
-                    *detection_range,
+                // draw_circle(
+                //     pos.x,
+                //     pos.y,
+                //     *radius,
+                //     Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
+                // );
+                draw_cone(
+                    pos,
+                    *radius,
+                    *angle,
+                    *width,
                     Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
                 );
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, BLACK);
@@ -731,6 +751,8 @@ enum HandleKind {
     RailEnd,
     MoveLaserBase,
     DetectionRange,
+    ConeWidth,
+    ConeAngleRadius,
 }
 
 #[derive(Debug, Clone)]
@@ -757,6 +779,12 @@ enum InteractionState {
         id: u32,
     },
     DetectionRange {
+        id: u32,
+    },
+    ConeAngleRadius {
+        id: u32,
+    },
+    ConeWidth {
         id: u32,
     },
     Resizing {
@@ -1301,6 +1329,12 @@ impl App {
                             HandleKind::DetectionRange => {
                                 self.state = InteractionState::DetectionRange { id }
                             }
+                            HandleKind::ConeWidth => {
+                                self.state = InteractionState::ConeWidth { id }
+                            }
+                            HandleKind::ConeAngleRadius => {
+                                self.state = InteractionState::ConeAngleRadius { id }
+                            }
                         }
                     } else {
                         let mut clicked_id = None;
@@ -1579,14 +1613,6 @@ impl App {
                 if mouse_down {
                     let object = self.objects.get_mut(id).unwrap();
                     match object {
-                        Object::Wave {
-                            rect,
-                            detection_range,
-                        } => {
-                            let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
-                            let diff = (pos - mouse_pos_world).length();
-                            *detection_range = diff;
-                        }
                         Object::Bird {
                             rect,
                             detection_range,
@@ -1595,7 +1621,8 @@ impl App {
                             let diff = (pos - mouse_pos_world).length();
                             *detection_range = diff;
                         }
-                        Object::Checkpoint { .. }
+                        Object::Wave { .. }
+                        | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
                         | Object::Heart { .. }
                         | Object::Banana { .. }
@@ -1621,6 +1648,70 @@ impl App {
                     self.ordering.push(id);
                     self.selected_ids.clear();
                     self.selected_ids.insert(id);
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::ConeAngleRadius { id } => {
+                if mouse_down {
+                    let object = self.objects.get_mut(id).unwrap();
+                    match object {
+                        Object::Wave {
+                            rect,
+                            radius,
+                            angle,
+                            width: _,
+                        } => {
+                            let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                            let diff_v = mouse_pos_world - pos;
+                            let diff = diff_v.length();
+                            *radius = diff.max(10.);
+                            *angle = diff_v.y.atan2(diff_v.x);
+                        }
+                        Object::Bird { .. }
+                        | Object::Checkpoint { .. }
+                        | Object::TutorialTexture { .. }
+                        | Object::Heart { .. }
+                        | Object::Banana { .. }
+                        | Object::Strawberry { .. }
+                        | Object::Rect { .. }
+                        | Object::Laser { .. }
+                        | Object::Player { .. } => {
+                            self.state = InteractionState::None;
+                        }
+                    }
+                } else {
+                    self.state = InteractionState::None;
+                }
+            }
+            InteractionState::ConeWidth { id } => {
+                if mouse_down {
+                    let object = self.objects.get_mut(id).unwrap();
+                    match object {
+                        Object::Wave {
+                            rect,
+                            radius: _,
+                            angle,
+                            width,
+                        } => {
+                            let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                            let mousedir = mouse_pos_world - pos;
+                            let dir = Vec2::from_angle(*angle);
+                            let a = dir.angle_between(mousedir) * 2.;
+                            *width = a.abs();
+                        }
+                        Object::Bird { .. }
+                        | Object::Checkpoint { .. }
+                        | Object::TutorialTexture { .. }
+                        | Object::Heart { .. }
+                        | Object::Banana { .. }
+                        | Object::Strawberry { .. }
+                        | Object::Rect { .. }
+                        | Object::Laser { .. }
+                        | Object::Player { .. } => {
+                            self.state = InteractionState::None;
+                        }
+                    }
+                } else {
                     self.state = InteractionState::None;
                 }
             }
@@ -1854,7 +1945,9 @@ impl App {
                 &self.textures.wave,
                 Object::Wave {
                     rect: Rect::new(0.0, 0.0, 40., 40.),
-                    detection_range: 200.,
+                    radius: 200.,
+                    angle: 270.0f32.to_radians(),
+                    width: 90.0f32.to_radians(),
                 },
             ),
         ];
@@ -2026,11 +2119,17 @@ async fn main() {
         if (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl))
             && is_key_pressed(KeyCode::S)
         {
-            let serialized = serialise(&app).expect("String formatting failed??");
-            if let Err(e) = std::fs::write(&file_name, serialized) {
-                eprintln!("Failed to save: {e}");
-            } else {
-                println!("Successfully saved to {file_name}");
+            match serialise(&app) {
+                Ok(serialised) => {
+                    if let Err(e) = std::fs::write(&file_name, serialised) {
+                        eprintln!("Failed to save: {e}");
+                    } else {
+                        println!("Successfully saved to {file_name}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error occured when serialising: {e}");
+                }
             }
         }
 
@@ -2168,16 +2267,25 @@ fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleKind>
         }
         Object::Wave {
             rect,
-            detection_range,
+            radius,
+            angle,
+            width,
         } => {
-            if Circle::new(
-                rect.x + rect.w / 2.,
-                rect.y + rect.h / 2. + detection_range,
-                size,
-            )
-            .contains(&mouse)
             {
-                return Some(HandleKind::DetectionRange);
+                let mid = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                let offset = Vec2::from_angle(*angle) * *radius;
+                let pos = mid + offset;
+                if Circle::new(pos.x, pos.y, size).contains(&mouse) {
+                    return Some(HandleKind::ConeAngleRadius);
+                }
+            }
+            {
+                let mid = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                let offset = Vec2::from_angle((*angle) + (*width / 2.)) * *radius;
+                let pos = mid + offset;
+                if Circle::new(pos.x, pos.y, size).contains(&mouse) {
+                    return Some(HandleKind::ConeWidth);
+                }
             }
         }
         Object::Checkpoint { .. } => {}
@@ -2252,15 +2360,32 @@ fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
         }
         Object::Wave {
             rect,
-            detection_range,
+            radius,
+            angle,
+            width,
         } => {
-            let (x, y) = (rect.x + rect.w / 2., rect.y + rect.h / 2. + detection_range);
-            let color = if Circle::new(x, y, size).contains(&mouse) {
-                RED
-            } else {
-                WHITE
-            };
-            draw_circle(x, y, size / CIRCLE_DIV, color);
+            {
+                let mid = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                let offset = Vec2::from_angle(*angle) * *radius;
+                let pos = mid + offset;
+                let color = if Circle::new(pos.x, pos.y, size).contains(&mouse) {
+                    RED
+                } else {
+                    WHITE
+                };
+                draw_circle(pos.x, pos.y, size / CIRCLE_DIV, color);
+            }
+            {
+                let mid = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                let offset = Vec2::from_angle((*angle) + (*width / 2.)) * *radius;
+                let pos = mid + offset;
+                let color = if Circle::new(pos.x, pos.y, size).contains(&mouse) {
+                    RED
+                } else {
+                    WHITE
+                };
+                draw_circle(pos.x, pos.y, size / CIRCLE_DIV, color);
+            }
         }
         Object::Checkpoint { .. } => {}
         Object::Player { .. } => {}
@@ -2366,4 +2491,18 @@ pub fn sat(rect_a: Rect, rot_a: f32, rect_b: Rect, rot_b: f32) -> bool {
     }
 
     true
+}
+
+pub fn draw_cone(mid: Vec2, radius: f32, angle: f32, width: f32, color: Color) {
+    let half_width = width / 2.0;
+    let start = angle - half_width;
+    let segments = ((width.to_degrees() as u32) / 10).max(5);
+    let step = width / segments as f32;
+    let mut prev_point = mid + Vec2::from_angle(start) * radius;
+    for i in 1..=segments {
+        let curr_angle = start + step * i as f32;
+        let curr_point = mid + Vec2::from_angle(curr_angle) * radius;
+        draw_triangle(mid, prev_point, curr_point, color);
+        prev_point = curr_point;
+    }
 }
