@@ -146,6 +146,13 @@ fn parse(s: &str, app: &mut App) {
                     width,
                 });
             }
+            "NAVMESH_MARKER" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                app.push_object(Object::NavmeshMarker {
+                    rect: Rect::new(x - 40. / 2., y - 40. / 2., 20., 20.),
+                });
+            }
             "TUTORIAL_OBJ" => {
                 let id = match split[1] {
                     "checkpoint" => "checkpoint",
@@ -286,6 +293,14 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
                     width,
                 )?;
             }
+            Object::NavmeshMarker { rect } => {
+                writeln!(
+                    s,
+                    "NAVMESH_MARKER {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.
+                )?;
+            }
         }
     }
     if player != 1 {
@@ -327,6 +342,9 @@ enum Object {
     Banana {
         rect: Rect,
     },
+    NavmeshMarker {
+        rect: Rect,
+    },
     Strawberry {
         rect: Rect,
     },
@@ -363,6 +381,7 @@ impl Object {
                     Object::TutorialTexture { .. },
                     Object::TutorialTexture { .. }
                 )
+                | (Object::NavmeshMarker { .. }, Object::NavmeshMarker { .. })
         )
     }
     fn aabb(&self) -> Rect {
@@ -381,8 +400,10 @@ impl Object {
                     LASER_WIDTH,
                 )
             }
+
             Object::Player { pos } => Rect::new(pos.x, pos.y, PLAYER_WIDTH, PLAYER_HEIGHT),
-            Object::Checkpoint { rect }
+            Object::NavmeshMarker { rect }
+            | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
             | Object::Bird { rect, .. }
@@ -431,7 +452,8 @@ impl Object {
                 *rail_end += delta;
             }
             Object::Player { pos: p } => *p = pos,
-            Object::Checkpoint { rect }
+            Object::NavmeshMarker { rect }
+            | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
             | Object::Bird { rect, .. }
@@ -446,6 +468,10 @@ impl Object {
     fn set_pos_centered(&mut self, pos: Vec2) {
         match self {
             Object::Rect { rect, .. } => {
+                rect.x = pos.x - rect.w / 2.;
+                rect.y = pos.y - rect.h / 2.;
+            }
+            Object::NavmeshMarker { rect } => {
                 rect.x = pos.x - rect.w / 2.;
                 rect.y = pos.y - rect.h / 2.;
             }
@@ -481,7 +507,8 @@ impl Object {
                 rect.w = size.x;
                 rect.h = size.y;
             }
-            Object::Checkpoint { .. }
+            Object::NavmeshMarker { .. }
+            | Object::Checkpoint { .. }
             | Object::Wave { .. }
             | Object::TutorialTexture { .. }
             | Object::Bird { .. }
@@ -540,6 +567,18 @@ impl Object {
                     1.0,
                     DrawRectangleParams {
                         color: outline,
+                        ..Default::default()
+                    },
+                );
+            }
+            Object::NavmeshMarker { rect } => {
+                draw_rectangle_ex(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    DrawRectangleParams {
+                        color: Color::from_rgba(135, 255, 139, alpha_u8),
                         ..Default::default()
                     },
                 );
@@ -735,6 +774,7 @@ struct Textures {
     checkpoint: Texture2D,
     wave: Texture2D,
     tutorial_textures: HashMap<&'static str, Texture2D>,
+    green: Texture2D,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1007,6 +1047,9 @@ impl App {
             ),
         ]);
 
+        let green_img = Image::gen_image_color(100, 100, Color::from_rgba(135, 255, 139, 255));
+        let green = Texture2D::from_image(&green_img);
+
         let textures = Textures {
             bird,
             banana,
@@ -1017,6 +1060,7 @@ impl App {
             tutorial_textures: map,
             checkpoint,
             wave,
+            green,
         };
         Self {
             state: InteractionState::None,
@@ -1621,7 +1665,8 @@ impl App {
                             let diff = (pos - mouse_pos_world).length();
                             *detection_range = diff;
                         }
-                        Object::Wave { .. }
+                        Object::NavmeshMarker { .. }
+                        | Object::Wave { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
                         | Object::Heart { .. }
@@ -1667,7 +1712,8 @@ impl App {
                             *radius = diff.max(10.);
                             *angle = diff_v.y.atan2(diff_v.x);
                         }
-                        Object::Bird { .. }
+                        Object::NavmeshMarker { .. }
+                        | Object::Bird { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
                         | Object::Heart { .. }
@@ -1699,7 +1745,8 @@ impl App {
                             let a = dir.angle_between(mousedir) * 2.;
                             *width = a.abs();
                         }
-                        Object::Bird { .. }
+                        Object::NavmeshMarker { .. }
+                        | Object::Bird { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
                         | Object::Heart { .. }
@@ -1886,15 +1933,6 @@ impl App {
                 self.state = InteractionState::AddingRectSelected { kind };
             }
         }
-        /*
-            Object::Rect { .. } => 0,
-            Object::Laser { .. } => 1,
-            Object::Player { ..} => 2,
-            Object::Bird { ..} => 3,
-            Object::Heart { ..} => 4,
-            Object::Banana { .. } => 5,
-            Object::Strawberry { ..} => 6,
-        */
         let add_items = [
             (
                 &self.textures.laser,
@@ -1948,6 +1986,12 @@ impl App {
                     radius: 200.,
                     angle: 270.0f32.to_radians(),
                     width: 90.0f32.to_radians(),
+                },
+            ),
+            (
+                &self.textures.green,
+                Object::NavmeshMarker {
+                    rect: Rect::new(0.0, 0.0, 20., 20.),
                 },
             ),
         ];
@@ -2288,6 +2332,7 @@ fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleKind>
                 }
             }
         }
+        Object::NavmeshMarker { .. } => {}
         Object::Checkpoint { .. } => {}
         Object::TutorialTexture { .. } => {}
         Object::Player { .. } => {}
@@ -2387,6 +2432,7 @@ fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
                 draw_circle(pos.x, pos.y, size / CIRCLE_DIV, color);
             }
         }
+        Object::NavmeshMarker { .. } => {}
         Object::Checkpoint { .. } => {}
         Object::Player { .. } => {}
         Object::Heart { .. } => {}
