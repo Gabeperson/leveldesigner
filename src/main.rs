@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -196,7 +196,9 @@ fn parse(s: &str, app: &mut App) {
 fn serialise(app: &App) -> Result<String, std::fmt::Error> {
     let mut s = String::new();
     let mut player = 0;
-    for object in app.objects.values() {
+    let mut tree = BTreeMap::new();
+    tree.extend(&app.objects);
+    for object in tree.values() {
         match object {
             Object::Rect { rect, kind } => {
                 let typ = match kind {
