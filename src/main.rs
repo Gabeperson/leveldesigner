@@ -77,6 +77,16 @@ fn parse(s: &str, app: &mut App) {
                     kind: RectKind::Hot,
                 });
             }
+            "PF_BOUND" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let w = parse_float(split[3]);
+                let h = parse_float(split[4]);
+                app.push_object(Object::Rect {
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
+                    kind: RectKind::PathfindingBound,
+                });
+            }
             "LASER" => {
                 let x1 = parse_float(split[1]);
                 let y1 = parse_float(split[2]);
@@ -206,6 +216,7 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
                     RectKind::AntiTp => "ANTI_TP",
                     RectKind::Tar => "TAR",
                     RectKind::Hot => "HOT",
+                    RectKind::PathfindingBound => "PF_BOUND",
                 };
                 writeln!(
                     s,
@@ -318,6 +329,7 @@ enum RectKind {
     AntiTp,
     Tar,
     Hot,
+    PathfindingBound,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -549,6 +561,10 @@ impl Object {
                     RectKind::Hot => (
                         Color::new(1.0, 0.8, 0.15, alpha),
                         Color::new(1.0, 0.7, 0.15, alpha),
+                    ),
+                    RectKind::PathfindingBound => (
+                        Color::new(0., 1., 0.85, 0.1 * alpha),
+                        Color::new(0., 0.58, 0.58, 0.1 * alpha),
                     ),
                 };
                 draw_rectangle_ex(
@@ -1894,6 +1910,10 @@ impl App {
             (RectKind::AntiTp, Color::new(1., 0.35, 0.9, 1.)),
             (RectKind::Tar, Color::new(0.1, 0.1, 0.1, 1.0)),
             (RectKind::Hot, Color::new(1.0, 0.8, 0.15, 1.0)),
+            (
+                RectKind::PathfindingBound,
+                Color::from_rgba(0, 255, 217, 50),
+            ),
         ];
 
         let mut start = 0.;
