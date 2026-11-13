@@ -15,6 +15,7 @@ const ITEM_HEIGHT: f32 = 50.;
 const CONTEXT_MENU_HEIGHT: f32 = 140.;
 const LASER_HANDLE_DIST: f32 = 20.;
 const CIRCLE_DIV: f32 = 2.0;
+const WAYPOINT_SIZE: f32 = 40.;
 
 fn parse(s: &str, app: &mut App) {
     let file = match std::fs::read_to_string(s) {
@@ -30,6 +31,9 @@ fn parse(s: &str, app: &mut App) {
         }
         let split = line.split(" ").collect::<Vec<_>>();
         fn parse_float(s: &str) -> f32 {
+            s.parse().expect("Expected float")
+        }
+        fn parse_int(s: &str) -> i32 {
             s.parse().expect("Expected float")
         }
         match split[0] {
@@ -156,11 +160,13 @@ fn parse(s: &str, app: &mut App) {
                     width,
                 });
             }
-            "NAVMESH_MARKER" => {
+            "WAYPOINT" => {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
-                app.push_object(Object::NavmeshMarker {
-                    rect: Rect::new(x - 40. / 2., y - 40. / 2., 20., 20.),
+                let waypoint_id = parse_int(split[3]);
+                app.push_object(Object::WaypointMarker {
+                    rect: Rect::new(x - 40. / 2., y - 40. / 2., WAYPOINT_SIZE, WAYPOINT_SIZE),
+                    waypoint_id,
                 });
             }
             "TUTORIAL_OBJ" => {
@@ -203,11 +209,13 @@ fn parse(s: &str, app: &mut App) {
     }
 }
 
-fn serialise(app: &App) -> Result<String, std::fmt::Error> {
+fn serialise(app: &App) -> Result<Option<String>, std::fmt::Error> {
     let mut s = String::new();
     let mut player = 0;
     let mut tree = BTreeMap::new();
     tree.extend(&app.objects);
+    let mut set = HashSet::new();
+    let mut set_err = false;
     for object in tree.values() {
         match object {
             Object::Rect { rect, kind } => {
@@ -306,21 +314,32 @@ fn serialise(app: &App) -> Result<String, std::fmt::Error> {
                     width,
                 )?;
             }
-            Object::NavmeshMarker { rect } => {
+            Object::WaypointMarker { rect, waypoint_id } => {
+                if !set.insert(waypoint_id) {
+                    eprintln!(
+                        "\x1b[31mError\x1b[0m: Found 2+ waypoint markers with same ID: {}",
+                        waypoint_id
+                    );
+                    set_err = true;
+                }
                 writeln!(
                     s,
-                    "NAVMESH_MARKER {} {}",
+                    "WAYPOINT {} {} {}",
                     rect.x + rect.w / 2.,
-                    rect.y + rect.h / 2.
+                    rect.y + rect.h / 2.,
+                    waypoint_id,
                 )?;
             }
         }
     }
     if player != 1 {
-        eprintln!("Error: {} player objects found", player);
-        return Err(std::fmt::Error);
+        eprintln!("\x1b[31mError\x1b[0m: {} player objects found", player);
+        return Ok(None);
     }
-    Ok(s)
+    if set_err {
+        return Ok(None);
+    }
+    Ok(Some(s))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -356,8 +375,9 @@ enum Object {
     Banana {
         rect: Rect,
     },
-    NavmeshMarker {
+    WaypointMarker {
         rect: Rect,
+        waypoint_id: i32,
     },
     Strawberry {
         rect: Rect,
@@ -395,7 +415,7 @@ impl Object {
                     Object::TutorialTexture { .. },
                     Object::TutorialTexture { .. }
                 )
-                | (Object::NavmeshMarker { .. }, Object::NavmeshMarker { .. })
+                | (Object::WaypointMarker { .. }, Object::WaypointMarker { .. })
         )
     }
     fn aabb(&self) -> Rect {
@@ -416,7 +436,7 @@ impl Object {
             }
 
             Object::Player { pos } => Rect::new(pos.x, pos.y, PLAYER_WIDTH, PLAYER_HEIGHT),
-            Object::NavmeshMarker { rect }
+            Object::WaypointMarker { rect, .. }
             | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
@@ -466,7 +486,7 @@ impl Object {
                 *rail_end += delta;
             }
             Object::Player { pos: p } => *p = pos,
-            Object::NavmeshMarker { rect }
+            Object::WaypointMarker { rect, .. }
             | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
@@ -485,7 +505,7 @@ impl Object {
                 rect.x = pos.x - rect.w / 2.;
                 rect.y = pos.y - rect.h / 2.;
             }
-            Object::NavmeshMarker { rect } => {
+            Object::WaypointMarker { rect, .. } => {
                 rect.x = pos.x - rect.w / 2.;
                 rect.y = pos.y - rect.h / 2.;
             }
@@ -521,7 +541,7 @@ impl Object {
                 rect.w = size.x;
                 rect.h = size.y;
             }
-            Object::NavmeshMarker { .. }
+            Object::WaypointMarker { .. }
             | Object::Checkpoint { .. }
             | Object::Wave { .. }
             | Object::TutorialTexture { .. }
@@ -589,7 +609,15 @@ impl Object {
                     },
                 );
             }
-            Object::NavmeshMarker { rect } => {
+            Object::WaypointMarker { rect, waypoint_id } => {
+                let s = waypoint_id.to_string();
+                let font_size = 100;
+                let font_scale = 0.25;
+                let size = measure_text(&s, None, font_size, font_scale);
+                let pos = Vec2::new(
+                    rect.x + rect.w / 2. - size.width / 2.,
+                    rect.y + rect.h / 2. - size.height / 2.,
+                );
                 draw_rectangle_ex(
                     rect.x,
                     rect.y,
@@ -597,6 +625,18 @@ impl Object {
                     rect.h,
                     DrawRectangleParams {
                         color: Color::from_rgba(135, 255, 139, alpha_u8),
+                        ..Default::default()
+                    },
+                );
+                draw_text_ex(
+                    s,
+                    pos.x,
+                    pos.y,
+                    TextParams {
+                        font_size,
+                        font_scale: -font_scale,
+                        font_scale_aspect: -1.,
+                        color: BLACK,
                         ..Default::default()
                     },
                 );
@@ -777,6 +817,12 @@ impl Object {
     }
 
     fn context_menu_target(&self, id: u32) -> ContextMenuTarget {
+        if let Object::WaypointMarker { .. } = self {
+            return ContextMenuTarget::Waypoint {
+                id,
+                waypoint_id: String::new(),
+            };
+        }
         ContextMenuTarget::SingleObject { id }
     }
 }
@@ -875,21 +921,42 @@ enum ContextMenuTarget {
     },
     #[default]
     MultiObjects,
+    Waypoint {
+        id: u32,
+        waypoint_id: String,
+    },
 }
 
 impl ContextMenuTarget {
-    fn options(&self) -> &[&str] {
+    fn options(&self) -> Vec<String> {
         match self {
-            ContextMenuTarget::SingleObject { .. } => &[
-                "Send backward",
-                "Send forward",
-                "Send to back",
-                "Send to front",
+            ContextMenuTarget::SingleObject { .. } => vec![
+                "Send backward".into(),
+                "Send forward".into(),
+                "Send to back".into(),
+                "Send to front".into(),
             ],
-            ContextMenuTarget::MultiObjects => &["Send to back", "Send to front"],
+            ContextMenuTarget::Waypoint {
+                waypoint_id: buffer,
+                ..
+            } => vec![
+                "Send backward".into(),
+                "Send forward".into(),
+                "Send to back".into(),
+                "Send to front".into(),
+                format!(
+                    "ID: {}",
+                    if buffer.is_empty() {
+                        String::from("_")
+                    } else {
+                        buffer.clone()
+                    }
+                ),
+            ],
+            ContextMenuTarget::MultiObjects => vec!["Send to back".into(), "Send to front".into()],
         }
     }
-    fn apply(&self, app: &mut App, n: usize) {
+    fn apply(&self, app: &mut App, n: usize) -> bool {
         match self {
             ContextMenuTarget::SingleObject { id } => match n {
                 0 => app.send_backward(*id),
@@ -903,7 +970,27 @@ impl ContextMenuTarget {
                 1 => app.send_to_front_multi(),
                 _ => {}
             },
+            ContextMenuTarget::Waypoint { id, waypoint_id } => match n {
+                0 => app.send_backward(*id),
+                1 => app.send_forward(*id),
+                2 => app.send_to_back_single(*id),
+                3 => app.send_to_front_single(*id),
+                4 => {
+                    let Ok(v) = waypoint_id.parse::<i32>() else {
+                        return false;
+                    };
+                    let Some(obj) = app.objects.get_mut(id) else {
+                        return true;
+                    };
+                    let Object::WaypointMarker { waypoint_id, .. } = obj else {
+                        return false;
+                    };
+                    *waypoint_id = v;
+                }
+                _ => {}
+            },
         }
+        true
     }
 }
 
@@ -1683,7 +1770,7 @@ impl App {
                             let diff = (pos - mouse_pos_world).length();
                             *detection_range = diff;
                         }
-                        Object::NavmeshMarker { .. }
+                        Object::WaypointMarker { .. }
                         | Object::Wave { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
@@ -1730,7 +1817,7 @@ impl App {
                             *radius = diff.max(10.);
                             *angle = diff_v.y.atan2(diff_v.x);
                         }
-                        Object::NavmeshMarker { .. }
+                        Object::WaypointMarker { .. }
                         | Object::Bird { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
@@ -1763,7 +1850,7 @@ impl App {
                             let a = dir.angle_between(mousedir) * 2.;
                             *width = a.abs();
                         }
-                        Object::NavmeshMarker { .. }
+                        Object::WaypointMarker { .. }
                         | Object::Bird { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
@@ -2012,8 +2099,9 @@ impl App {
             ),
             (
                 &self.textures.green,
-                Object::NavmeshMarker {
-                    rect: Rect::new(0.0, 0.0, 20., 20.),
+                Object::WaypointMarker {
+                    rect: Rect::new(0.0, 0.0, WAYPOINT_SIZE, WAYPOINT_SIZE),
+                    waypoint_id: 0,
                 },
             ),
         ];
@@ -2077,6 +2165,13 @@ impl App {
             self.context_menu = None;
             return;
         }
+        if let ContextMenuTarget::Waypoint { waypoint_id, .. } = target {
+            while let Some(c) = get_char_pressed() {
+                if c.is_ascii_digit() || c == '-' {
+                    waypoint_id.push(c);
+                }
+            }
+        };
         draw_rectangle_ex(
             menu.x,
             menu.y,
@@ -2135,7 +2230,7 @@ async fn main() {
     let mut args = std::env::args();
     let _name = args.next().unwrap();
     let Some(file_name) = args.next() else {
-        eprintln!("Error: must give filename to open!");
+        eprintln!("\x1b[31mError\x1b[0m: must give filename to open!");
         std::process::exit(1);
     };
     match std::fs::copy(&file_name, format!("{file_name}.backup")) {
@@ -2143,11 +2238,11 @@ async fn main() {
             println!("Succesfully backed up file");
         }
         Err(e) => {
-            eprintln!("Warning: Failed to back up file: {e}")
+            eprintln!("\x1b[33mWarning\x1b[0m: Failed to back up file: {e}")
         }
     }
     if args.next().is_some() {
-        eprintln!("Error: Expected only 1 arg!");
+        eprintln!("\x1b[31mError\x1b[0m: Expected only 1 arg!");
         std::process::exit(1);
     }
     let mut app = App::new().await;
@@ -2186,15 +2281,16 @@ async fn main() {
             && is_key_pressed(KeyCode::S)
         {
             match serialise(&app) {
-                Ok(serialised) => {
+                Ok(Some(serialised)) => {
                     if let Err(e) = std::fs::write(&file_name, serialised) {
                         eprintln!("Failed to save: {e}");
                     } else {
                         println!("Successfully saved to {file_name}");
                     }
                 }
+                Ok(None) => {}
                 Err(e) => {
-                    eprintln!("Error occured when serialising: {e}");
+                    eprintln!("\x1b[31mError\x1b[0m occured when serialising: {e}");
                 }
             }
         }
@@ -2354,7 +2450,7 @@ fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleKind>
                 }
             }
         }
-        Object::NavmeshMarker { .. } => {}
+        Object::WaypointMarker { .. } => {}
         Object::Checkpoint { .. } => {}
         Object::TutorialTexture { .. } => {}
         Object::Player { .. } => {}
@@ -2454,7 +2550,7 @@ fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
                 draw_circle(pos.x, pos.y, size / CIRCLE_DIV, color);
             }
         }
-        Object::NavmeshMarker { .. } => {}
+        Object::WaypointMarker { .. } => {}
         Object::Checkpoint { .. } => {}
         Object::Player { .. } => {}
         Object::Heart { .. } => {}
