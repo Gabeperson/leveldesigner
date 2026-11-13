@@ -1,0 +1,12 @@
+pub const LASER_WIDTH: f32 = 40.;
+pub const LASER_HEIGHT: f32 = 20.;
+pub const PLAYER_WIDTH: f32 = 48.;
+pub const PLAYER_HEIGHT: f32 = 96.;
+pub const HANDLE_SIZE: f32 = 10.0;
+pub const SIDEBAR_SIZE: f32 = 40.;
+pub const PATCH_SIZE: f32 = 30.;
+pub const ITEM_HEIGHT: f32 = 50.;
+pub const CONTEXT_MENU_HEIGHT: f32 = 140.;
+pub const LASER_HANDLE_DIST: f32 = 20.;
+pub const CIRCLE_DIV: f32 = 2.0;
+pub const WAYPOINT_SIZE: f32 = 40.;
