@@ -96,24 +96,24 @@ pub fn parse(s: &str, app: &mut App) {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 let detrange = parse_float(split[3]);
-                let canleave = parse_int(split[4]);
+                let canleave = split.get(4).map(|s| parse_int(s) != 0).unwrap_or(false);
                 app.push_object(Object::Bird {
                     rect: Rect::new(x - 50. / 2., y - 50. / 2., 50., 50.),
                     detection_range: detrange,
                     kind: BirdKind::Regular,
-                    can_leave_spawn: canleave != 0,
+                    can_leave_spawn: canleave,
                 });
             }
             "PATHFINDING_BIRD" => {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 let detrange = parse_float(split[3]);
-                let canleave = parse_int(split[4]);
+                let canleave = split.get(4).map(|s| parse_int(s) != 0).unwrap_or(false);
                 app.push_object(Object::Bird {
                     rect: Rect::new(x - 50. / 2., y - 50. / 2., 50., 50.),
                     detection_range: detrange,
                     kind: BirdKind::Pathfinding,
-                    can_leave_spawn: canleave != 0,
+                    can_leave_spawn: canleave,
                 });
             }
             "HEART" => {
