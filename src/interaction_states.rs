@@ -447,6 +447,7 @@ impl App {
                         Object::Bird {
                             rect,
                             detection_range,
+                            ..
                         } => {
                             let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
                             let diff = (pos - mouse_pos_world).length();

@@ -9,6 +9,12 @@ pub enum RectKind {
     PathfindingBound,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BirdKind {
+    Regular,
+    Pathfinding,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Object {
     Rect {
@@ -26,6 +32,8 @@ pub enum Object {
     Bird {
         rect: Rect,
         detection_range: f32,
+        kind: BirdKind,
+        can_leave_spawn: bool,
     },
     Heart {
         rect: Rect,
@@ -53,6 +61,9 @@ pub enum Object {
         id: &'static str,
         rect: Rect,
     },
+    // Portal {
+    //     rect: Rect,
+    // },
 }
 
 impl Object {
@@ -361,26 +372,54 @@ impl Object {
             Object::Bird {
                 rect,
                 detection_range,
-            } => {
-                let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
-                draw_circle(
-                    pos.x,
-                    pos.y,
-                    *detection_range,
-                    Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
-                );
-                draw_texture_ex(
-                    &textures.bird,
-                    rect.x,
-                    rect.y,
-                    WHITE.with_alpha(alpha),
-                    DrawTextureParams {
-                        dest_size: Some(Vec2::new(rect.w, rect.h)),
-                        flip_y: true,
-                        ..Default::default()
-                    },
-                );
-            }
+                kind,
+                can_leave_spawn,
+            } => match kind {
+                BirdKind::Regular => {
+                    let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                    draw_circle(
+                        pos.x,
+                        pos.y,
+                        *detection_range,
+                        Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
+                    );
+                    draw_texture_ex(
+                        &textures.bird,
+                        rect.x,
+                        rect.y,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(Vec2::new(rect.w, rect.h)),
+                            flip_y: true,
+                            ..Default::default()
+                        },
+                    );
+                }
+                BirdKind::Pathfinding => {
+                    let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
+                    draw_circle(
+                        pos.x,
+                        pos.y,
+                        *detection_range,
+                        if *can_leave_spawn {
+                            Color::from_rgba(255, 64, 64, (50_f32 * alpha) as u8)
+                        } else {
+                            Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8)
+                        },
+                    );
+                    draw_texture_ex(
+                        &textures.purple_bird,
+                        rect.x,
+                        rect.y,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(Vec2::new(rect.w, rect.h)),
+                            flip_y: true,
+                            ..Default::default()
+                        },
+                    );
+                }
+            },
             Object::Heart { rect } => {
                 draw_texture_ex(
                     &textures.heart,
@@ -479,6 +518,9 @@ impl Object {
                 id,
                 waypoint_id: String::new(),
             };
+        }
+        if let Object::Bird { .. } = self {
+            return ContextMenuTarget::Bird { id };
         }
         ContextMenuTarget::SingleObject { id }
     }

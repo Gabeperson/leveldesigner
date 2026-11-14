@@ -98,6 +98,7 @@ pub fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleK
         Object::Bird {
             rect,
             detection_range,
+            ..
         } => {
             if Circle::new(
                 rect.x + rect.w / 2.,
@@ -194,6 +195,7 @@ pub fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
         Object::Bird {
             rect,
             detection_range,
+            ..
         } => {
             let (x, y) = (rect.x + rect.w / 2., rect.y + rect.h / 2. + detection_range);
             let color = if Circle::new(x, y, size).contains(&mouse) {

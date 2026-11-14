@@ -11,6 +11,9 @@ pub enum ContextMenuTarget {
         id: u32,
         waypoint_id: String,
     },
+    Bird {
+        id: u32,
+    },
 }
 
 impl ContextMenuTarget {
@@ -41,6 +44,18 @@ impl ContextMenuTarget {
             ],
             ContextMenuTarget::MultiObjects => {
                 vec!["Send to back".into(), "Send to front".into()]
+            }
+            ContextMenuTarget::Bird { .. } => {
+                vec![
+                    "Send backward".into(),
+                    "Send forward".into(),
+                    "Send to back".into(),
+                    "Send to front".into(),
+                    "Regular".into(),
+                    "Pathfinding".into(),
+                    "CanLeave".into(),
+                    "CannotLeave".into(),
+                ]
             }
         }
     }
@@ -74,6 +89,55 @@ impl ContextMenuTarget {
                         return false;
                     };
                     *waypoint_id = v;
+                }
+                _ => {}
+            },
+            ContextMenuTarget::Bird { id } => match n {
+                0 => app.send_backward(*id),
+                1 => app.send_forward(*id),
+                2 => app.send_to_back_single(*id),
+                3 => app.send_to_front_single(*id),
+                4 => {
+                    let Some(obj) = app.objects.get_mut(id) else {
+                        return true;
+                    };
+                    let Object::Bird { kind, .. } = obj else {
+                        return false;
+                    };
+                    *kind = BirdKind::Regular
+                }
+                5 => {
+                    let Some(obj) = app.objects.get_mut(id) else {
+                        return true;
+                    };
+                    let Object::Bird { kind, .. } = obj else {
+                        return false;
+                    };
+                    *kind = BirdKind::Pathfinding
+                }
+                6 => {
+                    let Some(obj) = app.objects.get_mut(id) else {
+                        return true;
+                    };
+                    let Object::Bird {
+                        can_leave_spawn, ..
+                    } = obj
+                    else {
+                        return false;
+                    };
+                    *can_leave_spawn = true;
+                }
+                7 => {
+                    let Some(obj) = app.objects.get_mut(id) else {
+                        return true;
+                    };
+                    let Object::Bird {
+                        can_leave_spawn, ..
+                    } = obj
+                    else {
+                        return false;
+                    };
+                    *can_leave_spawn = false
                 }
                 _ => {}
             },

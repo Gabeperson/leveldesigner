@@ -16,7 +16,7 @@ pub fn parse(s: &str, app: &mut App) {
             s.parse().expect("Expected float")
         }
         fn parse_int(s: &str) -> i32 {
-            s.parse().expect("Expected float")
+            s.parse().expect("Expected int")
         }
         match split[0] {
             "REGULAR" => {
@@ -96,9 +96,24 @@ pub fn parse(s: &str, app: &mut App) {
                 let x = parse_float(split[1]);
                 let y = parse_float(split[2]);
                 let detrange = parse_float(split[3]);
+                let canleave = parse_int(split[4]);
                 app.push_object(Object::Bird {
                     rect: Rect::new(x - 50. / 2., y - 50. / 2., 50., 50.),
                     detection_range: detrange,
+                    kind: BirdKind::Regular,
+                    can_leave_spawn: canleave != 0,
+                });
+            }
+            "PATHFINDING_BIRD" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let detrange = parse_float(split[3]);
+                let canleave = parse_int(split[4]);
+                app.push_object(Object::Bird {
+                    rect: Rect::new(x - 50. / 2., y - 50. / 2., 50., 50.),
+                    detection_range: detrange,
+                    kind: BirdKind::Pathfinding,
+                    can_leave_spawn: canleave != 0,
                 });
             }
             "HEART" => {
@@ -241,15 +256,31 @@ pub fn serialise(app: &App) -> Result<Option<String>, std::fmt::Error> {
             Object::Bird {
                 rect,
                 detection_range,
-            } => {
-                writeln!(
-                    s,
-                    "BIRD {} {} {}",
-                    rect.x + rect.w / 2.,
-                    rect.y + rect.h / 2.,
-                    detection_range
-                )?;
-            }
+                kind,
+                can_leave_spawn,
+            } => match kind {
+                BirdKind::Regular => {
+                    writeln!(
+                        s,
+                        "BIRD {} {} {} {}",
+                        rect.x + rect.w / 2.,
+                        rect.y + rect.h / 2.,
+                        detection_range,
+                        (*can_leave_spawn) as i32,
+                    )?;
+                }
+                BirdKind::Pathfinding => {
+                    writeln!(
+                        s,
+                        "PATHFINDING_BIRD {} {} {} {}",
+                        rect.x + rect.w / 2.,
+                        rect.y + rect.h / 2.,
+                        detection_range,
+                        (*can_leave_spawn) as i32,
+                    )?;
+                }
+            },
+
             Object::Heart { rect } => {
                 writeln!(s, "HEART {} {}", rect.x + rect.w / 2., rect.y + rect.h / 2.)?;
             }

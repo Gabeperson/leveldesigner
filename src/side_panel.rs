@@ -76,6 +76,8 @@ impl App {
                 Object::Bird {
                     rect: Rect::new(0., 0., 50., 50.),
                     detection_range: 200.,
+                    kind: BirdKind::Pathfinding,
+                    can_leave_spawn: false,
                 },
             ),
             (

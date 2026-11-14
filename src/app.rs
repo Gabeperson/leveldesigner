@@ -2,6 +2,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub struct Textures {
     pub bird: Texture2D,
+    pub purple_bird: Texture2D,
     pub laser: Texture2D,
     pub banana: Texture2D,
     pub strawberry: Texture2D,
@@ -38,11 +39,11 @@ pub struct App {
 impl App {
     pub fn copy(&self) -> Vec<Object> {
         let mut v = Vec::new();
-        for id in self.ordering.iter().copied() {
-            if !self.selected_ids.contains(&id) {
+        for id in self.ordering.iter() {
+            if !self.selected_ids.contains(id) {
                 continue;
             }
-            v.push(self.objects[&id]);
+            v.push(self.objects[id]);
         }
         v
     }
@@ -79,6 +80,7 @@ impl App {
     }
     pub async fn new() -> Self {
         let bird = load_texture("textures/bird.png").await.unwrap();
+        let purple_bird = load_texture("textures/purple-bird.png").await.unwrap();
         let banana = load_texture("textures/bananas-pink.png").await.unwrap();
         let strawberry = load_texture("textures/strawberry-orange.png")
             .await
@@ -220,6 +222,7 @@ impl App {
             checkpoint,
             wave,
             green,
+            purple_bird,
         };
         Self {
             state: InteractionState::None,
