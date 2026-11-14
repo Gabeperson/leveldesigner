@@ -32,9 +32,51 @@ pub struct App {
     pub camera_pos: Vec2,
     pub pan_start: Vec2,
     pub textures: Textures,
+    pub clipboard: Vec<Object>,
 }
 
 impl App {
+    pub fn copy(&self) -> Vec<Object> {
+        let mut v = Vec::new();
+        for id in self.ordering.iter().copied() {
+            if !self.selected_ids.contains(&id) {
+                continue;
+            }
+            v.push(self.objects[&id]);
+        }
+        v
+    }
+    pub fn paste(&mut self, pos: Vec2) {
+        if self.clipboard.is_empty() {
+            return;
+        }
+        Self::push_snapshot(
+            &self.ordering,
+            &self.objects,
+            &self.selected_ids,
+            &mut self.undo_snapshots,
+            &mut self.redo_snapshots,
+        );
+        let v = pos - self.clipboard[0].pos();
+        self.selected_ids.clear();
+        for mut obj in self.clipboard.iter().copied() {
+            let id = new_id();
+            obj.set_pos(obj.pos() + v);
+            self.selected_ids.insert(id);
+            self.objects.insert(id, obj);
+            self.ordering.push(id);
+        }
+    }
+    pub fn dupe(&mut self) {
+        let mut copied = self.copy();
+        if copied.is_empty() {
+            return;
+        }
+        let pos = copied[0].pos() + Vec2::new(10., 10.);
+        std::mem::swap(&mut copied, &mut self.clipboard);
+        self.paste(pos);
+        std::mem::swap(&mut copied, &mut self.clipboard);
+    }
     pub async fn new() -> Self {
         let bird = load_texture("textures/bird.png").await.unwrap();
         let banana = load_texture("textures/bananas-pink.png").await.unwrap();
@@ -191,6 +233,7 @@ impl App {
             camera_pos: Vec2::ZERO,
             pan_start: Vec2::ZERO,
             textures,
+            clipboard: Vec::new(),
         }
     }
 

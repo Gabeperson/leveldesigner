@@ -63,6 +63,12 @@ impl App {
         let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
         let delete = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace);
         let escape = is_key_pressed(KeyCode::Escape);
+        let dupe = (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl))
+            && is_key_pressed(KeyCode::D);
+        let copy = (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl))
+            && is_key_pressed(KeyCode::C);
+        let paste = (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl))
+            && is_key_pressed(KeyCode::V);
         let group_rect = get_group_rect(&self.objects, &self.selected_ids);
         match &mut self.state {
             InteractionState::None => {
@@ -79,6 +85,15 @@ impl App {
                     }
                     self.ordering.retain(|id| !self.selected_ids.contains(id));
                     self.selected_ids.clear();
+                } else if dupe {
+                    self.dupe();
+                } else if copy {
+                    self.clipboard = self.copy();
+                } else if paste {
+                    let x = screen_width() / 2.;
+                    let y = screen_height() / 2.;
+                    let xy = camera.screen_to_world(Vec2::new(x, y));
+                    self.paste(xy);
                 } else if mouse_pressed {
                     let mut clicked_handle = None;
                     match self.selected_ids.len() {

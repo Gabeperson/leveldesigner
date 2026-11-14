@@ -49,7 +49,6 @@ pub enum Object {
         angle: f32,
         width: f32,
     },
-
     TutorialTexture {
         id: &'static str,
         rect: Rect,
