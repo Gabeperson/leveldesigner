@@ -453,7 +453,8 @@ impl App {
                             let diff = (pos - mouse_pos_world).length();
                             *detection_range = diff;
                         }
-                        Object::WaypointMarker { .. }
+                        Object::Portal { .. }
+                        | Object::WaypointMarker { .. }
                         | Object::Wave { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
@@ -500,7 +501,8 @@ impl App {
                             *radius = diff.max(10.);
                             *angle = diff_v.y.atan2(diff_v.x);
                         }
-                        Object::WaypointMarker { .. }
+                        Object::Portal { .. }
+                        | Object::WaypointMarker { .. }
                         | Object::Bird { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }
@@ -533,7 +535,8 @@ impl App {
                             let a = dir.angle_between(mousedir) * 2.;
                             *width = a.abs();
                         }
-                        Object::WaypointMarker { .. }
+                        Object::Portal { .. }
+                        | Object::WaypointMarker { .. }
                         | Object::Bird { .. }
                         | Object::Checkpoint { .. }
                         | Object::TutorialTexture { .. }

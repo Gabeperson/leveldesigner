@@ -10,3 +10,4 @@ pub const CONTEXT_MENU_HEIGHT: f32 = 140.;
 pub const LASER_HANDLE_DIST: f32 = 20.;
 pub const CIRCLE_DIV: f32 = 2.0;
 pub const WAYPOINT_SIZE: f32 = 40.;
+pub const PORTAL_H_TO_W: f32 = 0.6674528;

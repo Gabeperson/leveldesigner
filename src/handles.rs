@@ -77,6 +77,15 @@ pub fn get_active_handle(obj: &Object, mouse: Vec2, size: f32) -> Option<HandleK
                 }
             }
         }
+        Object::Portal { rect } => {
+            for (handle, rect) in get_handle_rects(*rect, size) {
+                if let HandleKind::TopRight = handle
+                    && on_handle(rect, mouse)
+                {
+                    return Some(handle);
+                }
+            }
+        }
         Object::Laser {
             rail_start,
             rail_end,
@@ -149,6 +158,26 @@ pub fn draw_handles(obj: &Object, mouse: Vec2, size: f32, zoom: f32) {
     match obj {
         Object::Rect { rect, .. } => {
             for (_handle, rect) in get_handle_rects(*rect, size) {
+                let color = if on_handle(rect, mouse) { RED } else { WHITE };
+                draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
+                draw_rectangle_lines_ex(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    weight,
+                    DrawRectangleParams {
+                        color: BLACK,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+        Object::Portal { rect, .. } => {
+            for (handle, rect) in get_handle_rects(*rect, size) {
+                let HandleKind::TopRight = handle else {
+                    continue;
+                };
                 let color = if on_handle(rect, mouse) { RED } else { WHITE };
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, color);
                 draw_rectangle_lines_ex(

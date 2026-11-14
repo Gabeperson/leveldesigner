@@ -61,9 +61,9 @@ pub enum Object {
         id: &'static str,
         rect: Rect,
     },
-    // Portal {
-    //     rect: Rect,
-    // },
+    Portal {
+        rect: Rect,
+    },
 }
 
 impl Object {
@@ -84,6 +84,7 @@ impl Object {
                     Object::TutorialTexture { .. }
                 )
                 | (Object::WaypointMarker { .. }, Object::WaypointMarker { .. })
+                | (Object::Portal { .. }, Object::Portal { .. })
         )
     }
     pub fn aabb(&self) -> Rect {
@@ -104,7 +105,8 @@ impl Object {
             }
 
             Object::Player { pos } => Rect::new(pos.x, pos.y, PLAYER_WIDTH, PLAYER_HEIGHT),
-            Object::WaypointMarker { rect, .. }
+            Object::Portal { rect }
+            | Object::WaypointMarker { rect, .. }
             | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
@@ -154,7 +156,8 @@ impl Object {
                 *rail_end += delta;
             }
             Object::Player { pos: p } => *p = pos,
-            Object::WaypointMarker { rect, .. }
+            Object::Portal { rect }
+            | Object::WaypointMarker { rect, .. }
             | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
@@ -191,7 +194,8 @@ impl Object {
                 p.x = pos.x - PLAYER_WIDTH / 2.;
                 p.y = pos.y - PLAYER_HEIGHT / 2.;
             }
-            Object::Checkpoint { rect }
+            Object::Portal { rect }
+            | Object::Checkpoint { rect }
             | Object::Wave { rect, .. }
             | Object::TutorialTexture { rect, .. }
             | Object::Bird { rect, .. }
@@ -205,6 +209,10 @@ impl Object {
     }
     pub fn set_size(&mut self, size: Vec2) {
         match self {
+            Object::Portal { rect } => {
+                rect.h = size.y;
+                rect.w = rect.h * PORTAL_H_TO_W;
+            }
             Object::Rect { rect, .. } => {
                 rect.w = size.x;
                 rect.h = size.y;
@@ -369,6 +377,17 @@ impl Object {
                     },
                 )
             }
+            Object::Portal { rect } => draw_texture_ex(
+                &textures.portal,
+                rect.x,
+                rect.y,
+                WHITE.with_alpha(alpha),
+                DrawTextureParams {
+                    dest_size: Some(Vec2::new(rect.w, rect.h)),
+                    flip_y: true,
+                    ..Default::default()
+                },
+            ),
             Object::Bird {
                 rect,
                 detection_range,
@@ -494,12 +513,6 @@ impl Object {
                 width,
             } => {
                 let pos = Vec2::new(rect.x + rect.w / 2., rect.y + rect.h / 2.);
-                // draw_circle(
-                //     pos.x,
-                //     pos.y,
-                //     *radius,
-                //     Color::from_rgba(50, 168, 153, (50_f32 * alpha) as u8),
-                // );
                 draw_cone(
                     pos,
                     *radius,

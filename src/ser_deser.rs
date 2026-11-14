@@ -166,6 +166,15 @@ pub fn parse(s: &str, app: &mut App) {
                     waypoint_id,
                 });
             }
+            "PORTAL" => {
+                let x = parse_float(split[1]);
+                let y = parse_float(split[2]);
+                let h = parse_float(split[3]);
+                let w = h * PORTAL_H_TO_W;
+                app.push_object(Object::Portal {
+                    rect: Rect::new(x - w / 2., y - h / 2., w, h),
+                });
+            }
             "TUTORIAL_OBJ" => {
                 let id = match split[1] {
                     "checkpoint" => "checkpoint",
@@ -186,7 +195,6 @@ pub fn parse(s: &str, app: &mut App) {
                     "teleport" => "teleport",
                     "walljump" => "walljump",
                     "congrats" => "congrats",
-                    "portal" => "portal",
                     _ => panic!("Invalid tutorial object found: {}", split[1]),
                 };
                 let x = parse_float(split[2]);
@@ -341,6 +349,15 @@ pub fn serialise(app: &App) -> Result<Option<String>, std::fmt::Error> {
                     rect.x + rect.w / 2.,
                     rect.y + rect.h / 2.,
                     waypoint_id,
+                )?;
+            }
+            Object::Portal { rect } => {
+                writeln!(
+                    s,
+                    "PORTAL {} {} {}",
+                    rect.x + rect.w / 2.,
+                    rect.y + rect.h / 2.,
+                    rect.h,
                 )?;
             }
         }

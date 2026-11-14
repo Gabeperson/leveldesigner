@@ -12,6 +12,7 @@ pub struct Textures {
     pub wave: Texture2D,
     pub tutorial_textures: HashMap<&'static str, Texture2D>,
     pub green: Texture2D,
+    pub portal: Texture2D,
 }
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -90,6 +91,9 @@ impl App {
         let player = load_texture("textures/player.png").await.unwrap();
         let checkpoint = load_texture("textures/checkpoint.png").await.unwrap();
         let wave = load_texture("textures/wave.png").await.unwrap();
+        let portal = load_texture("textures/tutorial/portal-purple.png")
+            .await
+            .unwrap();
 
         let map = HashMap::from([
             (
@@ -200,12 +204,6 @@ impl App {
                     .await
                     .unwrap(),
             ),
-            (
-                "portal",
-                load_texture("textures/tutorial/portal-purple.png")
-                    .await
-                    .unwrap(),
-            ),
         ]);
 
         let green_img = Image::gen_image_color(100, 100, Color::from_rgba(135, 255, 139, 255));
@@ -223,6 +221,7 @@ impl App {
             wave,
             green,
             purple_bird,
+            portal,
         };
         Self {
             state: InteractionState::None,

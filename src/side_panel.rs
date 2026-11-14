@@ -120,6 +120,12 @@ impl App {
                     waypoint_id: 0,
                 },
             ),
+            (
+                &self.textures.portal,
+                Object::Portal {
+                    rect: Rect::new(0.0, 0.0, 200. * PORTAL_H_TO_W, 200.),
+                },
+            ),
         ];
         for (texture, object) in add_items {
             let rect = Rect::new(
